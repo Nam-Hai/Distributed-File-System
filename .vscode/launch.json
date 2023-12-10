@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "lldb",
+      "request": "launch",
+      "args": [],
+      "cwd": "/Users/namhai/Documents/Code/OS/filesystems-distributed",
+      "program": "/Users/namhai/Documents/Code/OS/filesystems-distributed/build/Debug/outDebug"
+    }
+  ]
+}
