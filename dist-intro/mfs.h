@@ -16,6 +16,7 @@ enum BLOCK_ENUM
 };
 
 #define MFS_BLOCK_SIZE (4096)
+#define FILE_NAME_SIZE (60)
 
 typedef struct __MFS_Stat_t
 {
@@ -39,19 +40,47 @@ enum MESSAGE_ENUM
     M_READ,
     M_CREAT,
     M_UNLINK,
-    M_SHUTDOWN
+    M_SHUTDOWN,
+    M_ERROR = -1
 };
 
 typedef struct __Message_t
 {
     enum MESSAGE_ENUM message_type;
+    int type;
+    int port;
+    int pinum;
+    int inum;
+    int block;
+    MFS_Stat_t stat;
+    char buffer[MFS_BLOCK_SIZE];
+    char name[FILE_NAME_SIZE];
 } Message_t;
 
 #define SERVER_BUFFER_SIZE (1000)
 
 int MFS_Init(char *hostname, int port);
 int MFS_Init_SERVER(int fd, struct sockaddr_in *addr);
-int MFS_Lookup(int pinum, char *name);
-int MFS_Lookup_SERVER(int fd, struct sockaddr_in *addr);
+
+int MFS_Lookup(int pinum, char name[FILE_NAME_SIZE]);
+int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE]);
+
+int MFS_Stat(int inum, MFS_Stat_t *m);
+int MFS_Stat_SERVER(int inum);
+
+int MFS_Write(int inum, char *buffer, int block);
+int MFS_Write_SERVER(int inum, char *buffer, int block);
+
+int MFS_Read(int inum, char *buffer, int block);
+int MFS_Read_SERVER(int inum, char *buffer, int block);
+
+int MFS_Creat(int pinum, int type, char *name);
+int MFS_Creat_SERVER(int pinum, int type, char *name);
+
+int MFS_Unlink(int pinum, char *name);
+int MFS_Unlink_SERVER(int pinum, char *name);
+
+int MFS_Shutdown();
+int MFS_Shutdown_SERVER();
 
 #endif // __MFS_h__
