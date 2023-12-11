@@ -42,6 +42,7 @@ int MFS_Init(char *hostname, int port)
 int fd;
 Checkpoint_t *checkpoint;
 void *image;
+off_t imap_offset;
 
 struct sockaddr_in *server_addr;
 int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
@@ -105,7 +106,7 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     root_dir.name[2] = '\0';
     write(fd, &root_dir, sizeof(MFS_DirEnt_t));
 
-    off_t inode_offset = lseek(fd, 0, SEEK_CUR);
+    off_t inode_offset = lseek(fd, MFS_BLOCK_SIZE - sizeof(MFS_DirEnt_t), SEEK_CUR);
     MFS_Stat_t inode_root;
     inode_root.type = MFS_DIRECTORY;
     inode_root.size = MFS_BLOCK_SIZE;
@@ -115,13 +116,15 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     write(fd, &root_block_offset2, sizeof(off_t));
 
     // rest of the inode point to nothing
-    for (int i = 0; i < (MFS_BLOCK_SIZE - sizeof(MFS_Stat_t) - 2 * sizeof(off_t)); i++)
+    for (int i = 0; i < (MFS_BLOCK_SIZE - sizeof(MFS_Stat_t) - 2 * sizeof(off_t)) / sizeof(off_t); i++)
     {
+        printf("%d\n", i);
         write(fd, (const void *)(-1), sizeof(off_t));
     }
 
     // imap
-    off_t imap_offset = lseek(fd, 0, SEEK_CUR);
+    imap_offset = lseek(fd, 0, SEEK_CUR);
+    printf("imap_offset %lld, inode_offset %lld, root1 %lld", imap_offset, inode_offset, root_block_offset);
     write(fd, &inode_offset, sizeof(off_t));
 
     // checkpoint
@@ -297,17 +300,74 @@ int MFS_Creat(int pinum, int type, char *name)
     return rc;
 };
 
-unsigned int get_bit(unsigned int *bitmap, int position)
-{
-    int index = position / 32;
-    int offset = 31 - (position % 32);
-    return (bitmap[index] >> offset) & 0x1;
-}
-
 int MFS_Creat_SERVER(int pinum, int type, char *name)
 {
     printf("SERVER PROXY ============= CREAT\n");
     // DO SOMETHING ////////////////////////////////////////////
+
+    if (type == MFS_REGULAR_FILE)
+    {
+        printf("create regular file of name %s and parent inum %d\n", name, pinum);
+
+        if (imap_offset)
+        {
+            off_t cur = lseek(fd, 0, SEEK_CUR);
+            if (cur != imap_offset)
+            {
+                lseek(fd, imap_offset, SEEK_SET);
+            }
+        }
+        else
+        {
+            lseek(fd, 0, SEEK_SET);
+            ssize_t s = read(fd, &imap_offset, sizeof(off_t));
+            if (s == -1)
+            {
+                perror("read");
+                return -1;
+            }
+            lseek(fd, imap_offset - sizeof(off_t), SEEK_CUR);
+        }
+        printf("create imap_offset %lld\n", imap_offset);
+
+        off_t root_block_offset = lseek(fd, MFS_BLOCK_SIZE, SEEK_SET);
+
+        MFS_DirEnt_t root_dir;
+        root_dir.name[0] = '.';
+        root_dir.name[1] = '\0';
+        root_dir.inum = 0;
+        write(fd, &root_dir, sizeof(MFS_DirEnt_t));
+
+        off_t root_block_offset2 = lseek(fd, MFS_BLOCK_SIZE - sizeof(MFS_DirEnt_t), SEEK_CUR);
+        // for root ../ and ./ is the same
+        root_dir.inum = 0;
+        root_dir.name[1] = '.';
+        root_dir.name[2] = '\0';
+        write(fd, &root_dir, sizeof(MFS_DirEnt_t));
+
+        off_t inode_offset = lseek(fd, 0, SEEK_CUR);
+        MFS_Stat_t inode_root;
+        inode_root.type = MFS_DIRECTORY;
+        inode_root.size = MFS_BLOCK_SIZE;
+        write(fd, &inode_root, sizeof(MFS_Stat_t));
+
+        write(fd, &root_block_offset, sizeof(off_t));
+        write(fd, &root_block_offset2, sizeof(off_t));
+
+        // rest of the inode point to nothing
+        for (int i = 0; i < (MFS_BLOCK_SIZE - sizeof(MFS_Stat_t) - 2 * sizeof(off_t)); i++)
+        {
+            write(fd, (const void *)(-1), sizeof(off_t));
+        }
+
+        // imap
+        off_t imap_offset = lseek(fd, 0, SEEK_CUR);
+        write(fd, &inode_offset, sizeof(off_t));
+
+        // checkpoint
+        lseek(fd, 0, SEEK_SET);
+        write(fd, &imap_offset, sizeof(off_t));
+    }
 
     //////////////////////////////////////////////////////////
     char answer[SERVER_BUFFER_SIZE] = "ok";
