@@ -100,6 +100,7 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
 
     off_t root_block_offset2 = lseek(fd, MFS_BLOCK_SIZE - sizeof(MFS_DirEnt_t), SEEK_CUR);
     // for root ../ and ./ is the same
+    root_dir.inum = 0;
     root_dir.name[1] = '.';
     root_dir.name[2] = '\0';
     write(fd, &root_dir, sizeof(MFS_DirEnt_t));
@@ -122,6 +123,10 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     // imap
     off_t imap_offset = lseek(fd, 0, SEEK_CUR);
     write(fd, &inode_offset, sizeof(off_t));
+
+    // checkpoint
+    lseek(fd, 0, SEEK_SET);
+    write(fd, &imap_offset, sizeof(off_t));
 
     server_addr = addr;
 
