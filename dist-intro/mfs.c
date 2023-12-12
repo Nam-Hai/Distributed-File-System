@@ -103,6 +103,13 @@ ssize_t log_read(void *buffer, enum SIZE_ENUM size)
     return s;
 }
 
+void update_checkpoint()
+{
+    // checkpoint region
+    seek_block(0);
+    write(fd, &checkpoint, sizeof(Checkpoint_t));
+}
+
 struct sockaddr_in *server_addr;
 int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
 {
@@ -162,7 +169,9 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     MFS_Stat_t inode_file;
     inode_file.type = MFS_REGULAR_FILE;
     inode_file.size = 1; // le file ne fait que 1 seul block data, c.a.d l'inode ne va pointer que vers 1 block
-    log_write(&inode_file, SIZE_STAT_T);
+
+    checkpoint.inode_number++;
+    log_write(&inode_file, SIZE_INODE_H);
 
     // block 3
     // Creation d'un directory root
@@ -189,7 +198,8 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     MFS_Stat_t inode_root;
     inode_root.type = MFS_DIRECTORY;
     inode_root.size = 1;
-    log_write(&inode_root, SIZE_STAT_T);
+    checkpoint.inode_number++;
+    log_write(&inode_root, SIZE_INODE_H);
 
     // Inode point vers le dir
     log_write(&root_block_offset, SIZE_ADDR);
@@ -197,6 +207,8 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     // block 5
     // Init l'imap
     imap_addr = seek_next_block();
+    checkpoint.imaps_addr = imap_addr;
+
     // root inode est bien l'inode avec inum == 0, c.a.d la premiere addresse de imap
     log_write(&inode_addr, SIZE_ADDR);
     inode_addr = block_to_addr(2);
@@ -214,14 +226,7 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
         printf("imap_cache[%d]: %ld\n", i, (long)imap_cache[i]);
     }
 
-    // checkpoint region
-    seek_block(0);
-
-    // log_write(&imap_addr, SIZE_ADDR);
-    // je prend en memoir des info importants
-    checkpoint.imaps_addr = imap_addr;
-    checkpoint.inode_number = 2;
-    write(fd, &checkpoint, sizeof(Checkpoint_t));
+    update_checkpoint();
 
     server_addr = addr;
 
@@ -397,15 +402,113 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     printf("SERVER PROXY ============= CREAT\n");
     // DO SOMETHING ////////////////////////////////////////////
 
-    // Creer une inode d'un file nomme name, pointe par le directory d'inum pinum
+    if (sizeof(name) < FILE_NAME_SIZE)
+    {
+        perror("name is too long");
+        return -1;
+    }
 
+    // aller au dir pinum
+
+    // c'est ici qu'on check si pinum exist
+    off_t parent_inode_addr = imap_cache[pinum];
+    seek_block(addr_to_block(parent_inode_addr));
+    MFS_Stat_t stat_buffer;
+    log_read(&stat_buffer, SIZE_INODE_H);
+
+    if (stat_buffer.type != MFS_DIRECTORY)
+    {
+        perror("MFS_CREAT pinum not a directory");
+        return -1;
+    }
+    if (stat_buffer.size < 1)
+    {
+        perror("MFS_CREAT directory miss initialiazed, size = 0");
+        return -1;
+    }
+
+    // Je pars pour l'instand du principe que le block du dir est jamais remplis au max, ce n'est evidement pas toujours le cas
+    // Il faut alors quand ya plus de place, revenir dans le inode et alors creer un nouveau block du Dir et faire pointer le inode vers ce block
+    // lseek(fd, (stat_buffer.size - 1) * SIZE_ADDR, SEEK_CUR);
+    off_t dir_addr;
+    log_read(&dir_addr, SIZE_ADDR);
+
+    lseek(fd, dir_addr, SEEK_SET);
+
+    MFS_DirEnt_t dir_content;
+    strcpy(dir_content.name, name);
+    checkpoint.inode_number++;
+    dir_content.inum = checkpoint.inode_number;
+
+    MFS_DirEnt_t dir_buffer;
+    for (int i = 0; i < SIZE_BLOCK / SIZE_DIR; i++)
+    {
+        log_read(&dir_buffer, SIZE_DIR);
+
+        // printf("dir name %s\n", dir_buffer.name);
+        if (strcmp(dir_buffer.name, name) == 0)
+        {
+            // FILE ALREADY EXIST OMG
+            char answer[SERVER_BUFFER_SIZE] = "ok";
+            printf("write args : pinum %d, type %d, name %s", pinum, type, name);
+            int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+            return 0
+        }
+        if (strcmp(dir_buffer.name, "") == 0)
+        {
+            log_write(&dir_content, SIZE_DIR);
+            break;
+        }
+    }
+
+    // FILE
+    // Creer une inode d'un file nomme name, pointe par le directory d'inum pinum
     seek_imap(); // seek end of file
+
     off_t inode_addr = seek_next_block();
-    // Header
-    MFS_Stat_t inode_root;
-    inode_root.type = type; // file / dir
-    inode_root.size = 0;    // il y a rien dedans pour l'instant
-    log_write(&inode_root, SIZE_STAT_T);
+    if (type == MFS_REGULAR_FILE)
+    {
+        // Header
+        MFS_Stat_t inode;
+        inode.type = type; // file
+        inode.size = 0;    // il y a rien dedans pour l'instant
+        log_write(&inode, SIZE_INODE_H);
+        imap_cache[checkpoint.inode_number] = inode_addr;
+    }
+    else if (type == MFS_DIRECTORY)
+    {
+        // Creer un dir qui point vers root et parent
+        MFS_DirEnt_t root_dir;
+        strcpy(root_dir.name, ".");
+        root_dir.inum = 0;
+
+        log_write(&root_dir, SIZE_DIR);
+
+        strcpy(root_dir.name, "..");
+        root_dir.inum = pinum;
+        log_write(&root_dir, SIZE_DIR);
+
+        seek_next_block();
+
+        // Header
+        MFS_Stat_t inode;
+        inode.type = type; // dir
+        inode.size = 0;    // il y a rien dedans pour l'instant
+        log_write(&inode, SIZE_INODE_H);
+        imap_cache[checkpoint.inode_number] = inode_addr;
+    }
+    else
+    {
+        perror("MFS Creat type error");
+    }
+
+    // Creer une nouvelle imap
+    imap_addr = seek_next_block();
+    log_write(&imap_cache, SIZE_BLOCK);
+    checkpoint.imaps_addr = imap_addr;
+
+    // update checkpoint, on devrait update checkpoint periodiquement mais bon c'est pas pour tout de suite
+    update_checkpoint();
 
     //////////////////////////////////////////////////////////
     char answer[SERVER_BUFFER_SIZE] = "ok";

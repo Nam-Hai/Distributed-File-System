@@ -67,7 +67,7 @@ typedef struct __Checkpoint_t
 enum SIZE_ENUM
 {
     SIZE_DIR = sizeof(MFS_DirEnt_t),
-    SIZE_STAT_T = sizeof(MFS_Stat_t),
+    SIZE_INODE_H = sizeof(MFS_Stat_t),
     SIZE_ADDR = sizeof(off_t),
     SIZE_BLOCK = MFS_BLOCK_SIZE
 };
