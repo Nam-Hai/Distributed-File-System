@@ -42,7 +42,63 @@ int MFS_Init(char *hostname, int port)
 int fd;
 Checkpoint_t *checkpoint;
 void *image;
-off_t imap_offset;
+
+off_t imap_addr;
+off_t curr_addr;
+int curr_block;
+
+int block_to_addr(int b)
+{
+    return b * MFS_BLOCK_SIZE;
+}
+int addr_to_block(int addr)
+{
+    int b = addr / MFS_BLOCK_SIZE;
+    return b;
+}
+
+enum SIZE_ENUM
+{
+    SIZE_DIR = sizeof(MFS_DirEnt_t),
+    SIZE_STAT_T = sizeof(MFS_Stat_t),
+    SIZE_ADDR = sizeof(off_t),
+    SIZE_BLOCK = MFS_BLOCK_SIZE
+};
+// wrapper for lseek
+off_t seek_block(int n)
+{
+    curr_block = n;
+    return lseek(fd, block_to_addr(n), SEEK_SET);
+}
+
+off_t seek_next_block()
+{
+    return seek_block(curr_block + 1);
+}
+
+// seek a la fin, donc a l'imap
+off_t seek_imap()
+{
+    return seek_block(addr_to_block(imap));
+}
+
+// wrapper for write
+ssize_t log_write(const void *buffer, enum SIZE_ENUM size)
+{
+    ssize_t s = write(fd, buffer, size);
+    curr_addr = lseek(fd, 0, SEEK_CUR);
+    curr_block = addr_to_block(curr_addr);
+    return s;
+}
+
+// wrapper for read
+ssize_t log_read(void *buffer, enum SIZE_ENUM size)
+{
+    ssize_t s = read(fd, buffer, size);
+    curr_addr = lseek(fd, 0, SEEK_CUR);
+    curr_block = addr_to_block(curr_addr);
+    return s;
+}
 
 struct sockaddr_in *server_addr;
 int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
@@ -73,7 +129,7 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
 
     int total_blocks = new_size / MFS_BLOCK_SIZE;
     // Make sure each block on the image is empty
-    int index = lseek(fd, 0, SEEK_SET);
+    seek_block(0);
     for (int i = 0; i < total_blocks; i++)
     {
         int w = write(fd, empty_buffer, MFS_BLOCK_SIZE);
@@ -91,45 +147,62 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     int size = (int)stat_buf.st_size;
     printf("size image : %d\n", size);
 
-    off_t root_block_offset = lseek(fd, MFS_BLOCK_SIZE, SEEK_SET);
+    // block 1
+    // Creation d'un file foo
+    off_t foo_addr = seek_next_block();
+    char buffer[MFS_BLOCK_SIZE] = "Ceci est un file";
+    log_write(&buffer, SIZE_BLOCK);
+    off_t a = lseek(fd, 0, SEEK_CUR);
+    printf("Block de data %d, block apres ecriture %d, curr_block %d\n", addr_to_block(foo_addr), addr_to_block(a), curr_block); // Ecrire SIZE_BLOCK amene bien au block suivant
 
+    // block 2
+    MFS_Stat_t inode_file;
+    inode_file.type = MFS_REGULAR_FILE;
+    inode_file.size = 1; // le file ne fait que 1 seul block data, c.a.d l'inode ne va pointer que vers 1 block
+    log_write(&inode_file, SIZE_STAT_T);
+
+    // block 3
+    // Creation d'un directory root
+    off_t root_block_offset = seek_next_block();
     MFS_DirEnt_t root_dir;
-    root_dir.name[0] = '.';
-    root_dir.name[1] = '\0';
-    root_dir.inum = 0;
-    write(fd, &root_dir, sizeof(MFS_DirEnt_t));
+    strcpy(root_dir.name, ".");
 
-    off_t root_block_offset2 = lseek(fd, MFS_BLOCK_SIZE - sizeof(MFS_DirEnt_t), SEEK_CUR);
-    // for root ../ and ./ is the same
     root_dir.inum = 0;
-    root_dir.name[1] = '.';
-    root_dir.name[2] = '\0';
-    write(fd, &root_dir, sizeof(MFS_DirEnt_t));
+    log_write(&root_dir, SIZE_DIR);
 
-    off_t inode_offset = lseek(fd, MFS_BLOCK_SIZE - sizeof(MFS_DirEnt_t), SEEK_CUR);
+    // .. et . doivent pointer sur root ie le inode de lui meme
+    strcpy(root_dir.name, "..");
+    log_write(&root_dir, SIZE_DIR);
+
+    strcpy(root_dir.name, "foo");
+    root_dir.inum = 1; // foo sera le 2nd inode de la imap
+    log_write(&root_dir, SIZE_DIR);
+
+    // block 4
+    // Creation du INode Dir Root
+    off_t inode_addr = seek_next_block();
+
+    // Header
     MFS_Stat_t inode_root;
     inode_root.type = MFS_DIRECTORY;
-    inode_root.size = MFS_BLOCK_SIZE;
-    write(fd, &inode_root, sizeof(MFS_Stat_t));
+    inode_root.size = 1;
+    log_write(&inode_root, SIZE_STAT_T);
 
-    write(fd, &root_block_offset, sizeof(off_t));
-    write(fd, &root_block_offset2, sizeof(off_t));
+    // Inode point vers le dir
+    log_write(&root_block_offset, SIZE_ADDR);
 
-    // rest of the inode point to nothing
-    for (int i = 0; i < (MFS_BLOCK_SIZE - sizeof(MFS_Stat_t) - 2 * sizeof(off_t)) / sizeof(off_t); i++)
-    {
-        printf("%d\n", i);
-        write(fd, (const void *)(-1), sizeof(off_t));
-    }
+    // block 5
+    // Init l'imap
+    imap_addr = seek_next_block();
+    // root inode est bien l'inode avec inum == 0, c.a.d la premiere addresse de imap
+    log_write(&inode_addr, SIZE_ADDR);
 
-    // imap
-    imap_offset = lseek(fd, 0, SEEK_CUR);
-    printf("imap_offset %lld, inode_offset %lld, root1 %lld", imap_offset, inode_offset, root_block_offset);
-    write(fd, &inode_offset, sizeof(off_t));
+    inode_addr = block_to_addr(2);
+    log_write(&inode_addr, SIZE_ADDR);
 
     // checkpoint
-    lseek(fd, 0, SEEK_SET);
-    write(fd, &imap_offset, sizeof(off_t));
+    seek_block(0);
+    log_write(&imap_addr, SIZE_ADDR);
 
     server_addr = addr;
 
@@ -305,69 +378,14 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     printf("SERVER PROXY ============= CREAT\n");
     // DO SOMETHING ////////////////////////////////////////////
 
-    if (type == MFS_REGULAR_FILE)
-    {
-        printf("create regular file of name %s and parent inum %d\n", name, pinum);
+    // Creer une inode d'un file nomme name, pointe par le directory d'inum pinum
 
-        if (imap_offset)
-        {
-            off_t cur = lseek(fd, 0, SEEK_CUR);
-            if (cur != imap_offset)
-            {
-                lseek(fd, imap_offset, SEEK_SET);
-            }
-        }
-        else
-        {
-            lseek(fd, 0, SEEK_SET);
-            ssize_t s = read(fd, &imap_offset, sizeof(off_t));
-            if (s == -1)
-            {
-                perror("read");
-                return -1;
-            }
-            lseek(fd, imap_offset - sizeof(off_t), SEEK_CUR);
-        }
-        printf("create imap_offset %lld\n", imap_offset);
-
-        off_t root_block_offset = lseek(fd, MFS_BLOCK_SIZE, SEEK_SET);
-
-        MFS_DirEnt_t root_dir;
-        root_dir.name[0] = '.';
-        root_dir.name[1] = '\0';
-        root_dir.inum = 0;
-        write(fd, &root_dir, sizeof(MFS_DirEnt_t));
-
-        off_t root_block_offset2 = lseek(fd, MFS_BLOCK_SIZE - sizeof(MFS_DirEnt_t), SEEK_CUR);
-        // for root ../ and ./ is the same
-        root_dir.inum = 0;
-        root_dir.name[1] = '.';
-        root_dir.name[2] = '\0';
-        write(fd, &root_dir, sizeof(MFS_DirEnt_t));
-
-        off_t inode_offset = lseek(fd, 0, SEEK_CUR);
-        MFS_Stat_t inode_root;
-        inode_root.type = MFS_DIRECTORY;
-        inode_root.size = MFS_BLOCK_SIZE;
-        write(fd, &inode_root, sizeof(MFS_Stat_t));
-
-        write(fd, &root_block_offset, sizeof(off_t));
-        write(fd, &root_block_offset2, sizeof(off_t));
-
-        // rest of the inode point to nothing
-        for (int i = 0; i < (MFS_BLOCK_SIZE - sizeof(MFS_Stat_t) - 2 * sizeof(off_t)); i++)
-        {
-            write(fd, (const void *)(-1), sizeof(off_t));
-        }
-
-        // imap
-        off_t imap_offset = lseek(fd, 0, SEEK_CUR);
-        write(fd, &inode_offset, sizeof(off_t));
-
-        // checkpoint
-        lseek(fd, 0, SEEK_SET);
-        write(fd, &imap_offset, sizeof(off_t));
-    }
+    off_t inode_addr = seek_next_block();
+    // Header
+    MFS_Stat_t inode_root;
+    inode_root.type = type; // file / dir
+    inode_root.size = 0;    // il y a rien dedans pour l'instant
+    log_write(&inode_root, SIZE_STAT_T);
 
     //////////////////////////////////////////////////////////
     char answer[SERVER_BUFFER_SIZE] = "ok";

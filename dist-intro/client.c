@@ -11,6 +11,8 @@ int main(int argc, char *argv[])
     // int *pointer;
     // printf("pointer size %lu\n", sizeof(pointer));
 
+    // printf("pointer size %lu\n", sizeof(MFS_Stat_t));
+
     int port = client_port;
     int fd = MFS_Init(hostname, port);
     if (fd == -1)

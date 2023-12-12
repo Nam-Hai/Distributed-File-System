@@ -18,21 +18,18 @@ enum BLOCK_ENUM
 #define MFS_BLOCK_SIZE (4096)
 #define FILE_NAME_SIZE (28)
 
-// size of 32
 typedef struct __MFS_Stat_t
 {
     enum BLOCK_ENUM type; // MFS_DIRECTORY or MFS_REGULAR
     int size;             // bytes
-    // note: no permissions, access times, etc.
 } MFS_Stat_t;
 
+// 32 bit
 typedef struct __MFS_DirEnt_t
 {
     char name[FILE_NAME_SIZE]; // up to 28 bytes of name in directory (including \0)
     int inum;                  // inode number of entry (-1 means entry not used)
 } MFS_DirEnt_t;
-
-
 
 enum MESSAGE_ENUM
 {
@@ -63,7 +60,6 @@ typedef struct __Message_t
 typedef struct __Checkpoint_t
 {
     int imaps_num;
-
 } Checkpoint_t;
 
 #define SERVER_BUFFER_SIZE (1000)
