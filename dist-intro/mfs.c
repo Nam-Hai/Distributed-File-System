@@ -441,10 +441,7 @@ int MFS_Write(int inum, char buffer[MFS_BLOCK_SIZE], int block)
     return result;
 };
 
-// Comme j'implemente pas d'histoire de buffer d'ecriture pour pouvoir ecrire plusieur data block d'un coup
-// J'ai rendu possible (en tout cas je crois) que si le buffer est plus grand que MFS_BLOCK_SIZE alors
-// MFS_WRITE_SERVER decoupe buffer en plusieur block (si ya la place dans l'inode)
-int MFS_Write_SERVER(int inum, char *buffer, int block)
+int MFS_Write_SERVER(int inum, char buffer[SIZE_BLOCK], int block)
 {
     printf("SERVER PROXY ============= WRITE\n");
 
@@ -491,8 +488,7 @@ int MFS_Write_SERVER(int inum, char *buffer, int block)
     // end of file
     seek_imap();
 
-    int nb_of_new_block = sizeof(buffer) / SIZE_BLOCK;
-    if (nb_of_new_block + size > 14)
+    if (block == size && 1 + size > 14)
     {
         perror("MFS_WRITE writing buffer too big");
         char answer[SERVER_BUFFER_SIZE] = "-1";
@@ -500,26 +496,25 @@ int MFS_Write_SERVER(int inum, char *buffer, int block)
         return -1;
     }
 
-    // char buf[20];
-    // char sth[6] = "asfg\0";
-    // char *ijl = strncpy(buf, sth + 8, 6);
-    // printf("strncpy %s\n", ijl);
+    // on creer un nouveau block
+    off_t block_addr = seek_next_block();
+    char block_buffer[SIZE_BLOCK];
+    strcpy(block_buffer, buffer);
 
-    for (int i = 0; i < nb_of_new_block; i++)
+    log_write(block_buffer, SIZE_BLOCK);
+
+    pointers[block] = block_addr;
+
+    // c'est pas une update
+    if (block == size)
     {
-        off_t block_addr = seek_next_block();
-        char block_buffer[SIZE_BLOCK];
-        strncpy(block_buffer, buffer + i * SIZE_BLOCK, SIZE_BLOCK);
-
-        log_write(&block_buffer, SIZE_BLOCK);
-
-        pointers[block + i] = block_addr;
+        size++;
     }
 
     // nouvelle inode
     inode_addr = seek_next_block();
     inode_file.type = MFS_REGULAR_FILE;
-    inode_file.size = size + nb_of_new_block;
+    inode_file.size = size;
     log_write(&inode_file, SIZE_INODE_H);
     log_write(&pointers, sizeof(pointers));
 
@@ -532,7 +527,7 @@ int MFS_Write_SERVER(int inum, char *buffer, int block)
     // j'ajoute la nouvelle inode sur disk, imap_cache
     imap_addr = seek_next_block();
     checkpoint.imaps_addr = imap_addr;
-    log_write(&imap_cache, sizeof(imap_cache));
+    log_write(&imap_cache, SIZE_BLOCK);
 
     ////////////////////////////////////////////////////////
     char answer[SERVER_BUFFER_SIZE] = "0";
