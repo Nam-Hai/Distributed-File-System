@@ -799,26 +799,25 @@ int MFS_Shutdown()
     printf("CLIENT PROXY start ============= SHUTDOWN\n");
     Message_t message;
     message.message_type = M_SHUTDOWN;
-
     struct sockaddr_in read_addr;
 
-    int rc = UDP_Write(fd, &sockaddr, (char *)&message, sizeof(Message_t));
+    UDP_Write(fd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SERVER_BUFFER_SIZE];
-
-    rc = UDP_Read(fd, &read_addr, answer, SERVER_BUFFER_SIZE);
-
-    printf("CLIENT PROXY end ============= SHUTDOWN\n");
-    return rc;
+    UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
+    int result = atoi(answer);
+    printf("CLIENT PROXY end ============= SHUTDOWN\nanswer : %d\n", result);
+    UDP_Close(sd);
+    exit(0);
+    return result;
 };
 int MFS_Shutdown_SERVER()
 {
     printf("SERVER PROXY ============= SHUTDOWN\n");
-    // DO SOMETHING
+    char answer[SERVER_BUFFER_SIZE] = "0";
+    UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
 
-    char answer[SERVER_BUFFER_SIZE] = "ok";
-
-    int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-
-    return rc;
+    UDP_Close(sd);
+    exit(0);
+    return 0;
 };

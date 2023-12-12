@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
 
     // MFS_Write(0, "buffer string", 2);
 
-    // MFS_Shutdown();
+    MFS_Shutdown();
 
     // UDP_Close(fd);
     return 0;
