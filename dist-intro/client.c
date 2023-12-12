@@ -19,8 +19,9 @@ int main(int argc, char *argv[])
     {
         return 0;
     }
-    // MFS_Lookup(0, "test");
-    MFS_Creat(0, MFS_REGULAR_FILE, "test");
+    MFS_Creat(0, MFS_DIRECTORY, "myDir");
+    int inum = MFS_Lookup(0, "myDir");
+    printf("lookup res %d", inum);
 
     // MFS_Stat_t m;
     // MFS_Stat(0, &m);

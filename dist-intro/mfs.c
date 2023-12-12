@@ -251,18 +251,69 @@ int MFS_Lookup(int pinum, char name[FILE_NAME_SIZE])
 
     char answer[SERVER_BUFFER_SIZE];
     rc = UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
-
-    printf("CLIENT PROXY end ============= LOOKUP\nanswer : %s\n", answer);
-    return rc;
+    int result = atoi(answer);
+    printf("CLIENT PROXY end ============= LOOKUP\nanswer : %s %d\n", answer, result);
+    return result;
 };
 
 int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE])
 {
     printf("SERVER PROXY ============= LOOKUP\n");
 
-    // is good
-    char answer[SERVER_BUFFER_SIZE] = "ok";
+    // aller au dir pinum
+    // c'est ici qu'on check si pinum exist
+    off_t parent_inode_addr = imap_cache[pinum];
+    seek_block(addr_to_block(parent_inode_addr));
+    // on dans le inode du dir parent
+    MFS_Stat_t stat_buffer;
+    log_read(&stat_buffer, SIZE_INODE_H);
 
+    if (stat_buffer.type != MFS_DIRECTORY)
+    {
+        perror("MFS_CREAT pinum not a directory");
+        return -1;
+    }
+    if (stat_buffer.size < 1)
+    {
+        // il y a forcement .. et .
+        perror("MFS_CREAT directory miss initialiazed, size = 0");
+        return -1;
+    }
+
+    // on assume size == 1, un seul block pour dir
+    off_t dir_addr;
+    log_read(&dir_addr, SIZE_ADDR);
+
+    seek_block(addr_to_block(dir_addr));
+
+    MFS_DirEnt_t dir_buffer;
+    for (int i = 0; i < SIZE_BLOCK / SIZE_DIR; i++)
+    {
+        log_read(&dir_buffer, SIZE_DIR);
+
+        // DEBUG
+        printf("dir name %s\n", dir_buffer.name);
+        if (strcmp(dir_buffer.name, name) == 0)
+        {
+            // file exist
+            char answer[SERVER_BUFFER_SIZE];
+            snprintf(answer, sizeof(answer), "%d", dir_buffer.inum);
+
+            int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+            return 0;
+        }
+        if (strcmp(dir_buffer.name, "") == 0)
+        {
+            // on a atteint la fin du block
+            // file dont exist
+            char answer[SERVER_BUFFER_SIZE] = "-1";
+            int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+            return -1;
+            break;
+        }
+    }
+
+    char answer[SERVER_BUFFER_SIZE] = "ok";
     printf("lookup args : %d, %s\n", pinum, name);
     int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
     return rc;
@@ -402,14 +453,13 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     printf("SERVER PROXY ============= CREAT\n");
     // DO SOMETHING ////////////////////////////////////////////
 
-    if (sizeof(name) < FILE_NAME_SIZE)
+    if (sizeof(name) > FILE_NAME_SIZE)
     {
         perror("name is too long");
         return -1;
     }
 
     // aller au dir pinum
-
     // c'est ici qu'on check si pinum exist
     off_t parent_inode_addr = imap_cache[pinum];
     seek_block(addr_to_block(parent_inode_addr));
@@ -423,6 +473,7 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     }
     if (stat_buffer.size < 1)
     {
+        // il y a forcement .. et .
         perror("MFS_CREAT directory miss initialiazed, size = 0");
         return -1;
     }
@@ -433,33 +484,39 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     off_t dir_addr;
     log_read(&dir_addr, SIZE_ADDR);
 
-    lseek(fd, dir_addr, SEEK_SET);
-
-    MFS_DirEnt_t dir_content;
-    strcpy(dir_content.name, name);
-    checkpoint.inode_number++;
-    dir_content.inum = checkpoint.inode_number;
+    seek_block(addr_to_block(dir_addr));
+    // lseek(fd, dir_addr, SEEK_SET);
 
     MFS_DirEnt_t dir_buffer;
     for (int i = 0; i < SIZE_BLOCK / SIZE_DIR; i++)
     {
         log_read(&dir_buffer, SIZE_DIR);
 
-        // printf("dir name %s\n", dir_buffer.name);
+        // DEBUG
+        printf("dir name %s\n", dir_buffer.name);
         if (strcmp(dir_buffer.name, name) == 0)
         {
             // FILE ALREADY EXIST OMG
             char answer[SERVER_BUFFER_SIZE] = "ok";
             printf("write args : pinum %d, type %d, name %s", pinum, type, name);
             int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-            return 0
+            return 0;
         }
         if (strcmp(dir_buffer.name, "") == 0)
         {
+            // on remonte l'aiguille
+            lseek(fd, -SIZE_DIR, SEEK_CUR);
+
+            MFS_DirEnt_t dir_content;
+            checkpoint.inode_number++;
+            strcpy(dir_content.name, name);
+            dir_content.inum = checkpoint.inode_number;
             log_write(&dir_content, SIZE_DIR);
             break;
         }
     }
+
+    seek_block(addr_to_block(dir_addr));
 
     // FILE
     // Creer une inode d'un file nomme name, pointe par le directory d'inum pinum
