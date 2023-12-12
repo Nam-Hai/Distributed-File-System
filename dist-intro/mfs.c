@@ -10,8 +10,6 @@
 
 struct sockaddr_in sockaddr;
 
-int *pointer;
-static int pointer_size = sizeof(pointer);
 int cd = -1;
 int sd = -1;
 
@@ -40,7 +38,8 @@ int MFS_Init(char *hostname, int port)
 };
 
 int fd;
-Checkpoint_t *checkpoint;
+Checkpoint_t checkpoint;
+off_t imap_cache[SIZE_BLOCK / SIZE_ADDR];
 void *image;
 
 off_t imap_addr;
@@ -57,13 +56,6 @@ int addr_to_block(int addr)
     return b;
 }
 
-enum SIZE_ENUM
-{
-    SIZE_DIR = sizeof(MFS_DirEnt_t),
-    SIZE_STAT_T = sizeof(MFS_Stat_t),
-    SIZE_ADDR = sizeof(off_t),
-    SIZE_BLOCK = MFS_BLOCK_SIZE
-};
 // wrapper for lseek
 off_t seek_block(int n)
 {
@@ -79,13 +71,18 @@ off_t seek_next_block()
 // seek a la fin, donc a l'imap
 off_t seek_imap()
 {
-    return seek_block(addr_to_block(imap));
+    return seek_block(addr_to_block(imap_addr));
 }
 
 // wrapper for write
 ssize_t log_write(const void *buffer, enum SIZE_ENUM size)
 {
     ssize_t s = write(fd, buffer, size);
+    if (s == -1)
+    {
+        perror("Error writing file");
+        return -1;
+    }
     curr_addr = lseek(fd, 0, SEEK_CUR);
     curr_block = addr_to_block(curr_addr);
     return s;
@@ -95,6 +92,12 @@ ssize_t log_write(const void *buffer, enum SIZE_ENUM size)
 ssize_t log_read(void *buffer, enum SIZE_ENUM size)
 {
     ssize_t s = read(fd, buffer, size);
+    if (s == -1)
+    {
+        perror("Error reading file");
+        return -1;
+    }
+
     curr_addr = lseek(fd, 0, SEEK_CUR);
     curr_block = addr_to_block(curr_addr);
     return s;
@@ -196,13 +199,29 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     imap_addr = seek_next_block();
     // root inode est bien l'inode avec inum == 0, c.a.d la premiere addresse de imap
     log_write(&inode_addr, SIZE_ADDR);
-
     inode_addr = block_to_addr(2);
     log_write(&inode_addr, SIZE_ADDR);
 
-    // checkpoint
+    seek_imap();
+    log_read(imap_cache, SIZE_BLOCK);
+
+    for (int i = 0; i < SIZE_BLOCK / SIZE_ADDR; i++)
+    {
+        if (imap_cache[i] == 0)
+        {
+            break;
+        }
+        printf("imap_cache[%d]: %ld\n", i, (long)imap_cache[i]);
+    }
+
+    // checkpoint region
     seek_block(0);
-    log_write(&imap_addr, SIZE_ADDR);
+
+    // log_write(&imap_addr, SIZE_ADDR);
+    // je prend en memoir des info importants
+    checkpoint.imaps_addr = imap_addr;
+    checkpoint.inode_number = 2;
+    write(fd, &checkpoint, sizeof(Checkpoint_t));
 
     server_addr = addr;
 
@@ -380,6 +399,7 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
 
     // Creer une inode d'un file nomme name, pointe par le directory d'inum pinum
 
+    seek_imap(); // seek end of file
     off_t inode_addr = seek_next_block();
     // Header
     MFS_Stat_t inode_root;

@@ -59,8 +59,18 @@ typedef struct __Message_t
 
 typedef struct __Checkpoint_t
 {
-    int imaps_num;
+    off_t imaps_addr;
+    int inode_number;
 } Checkpoint_t;
+
+// used for write, read, seek wrapper in mfs.c
+enum SIZE_ENUM
+{
+    SIZE_DIR = sizeof(MFS_DirEnt_t),
+    SIZE_STAT_T = sizeof(MFS_Stat_t),
+    SIZE_ADDR = sizeof(off_t),
+    SIZE_BLOCK = MFS_BLOCK_SIZE
+};
 
 #define SERVER_BUFFER_SIZE (1000)
 
