@@ -831,16 +831,44 @@ int MFS_Unlink_SERVER(int pinum, char *name)
         return -1;
     }
 
-    // TODOOOOOO : TEST IF DIR 
+    // TODOOOOOO : TEST IF DIR
     // AND CHECK IF THE DIR IS EMPTY
     // WE CANT RM -RF BY DEFAULT
 
-    off_t dir_addr;
-    log_read(&dir_addr, SIZE_ADDR);
-    int block = addr_to_block(dir_addr);
-    seek_block(addr_to_block(dir_addr));
+    off_t parent_dir_addr;
+    log_read(&parent_dir_addr, SIZE_ADDR);
+    int parent_block = addr_to_block(parent_dir_addr);
+    seek_block(parent_block);
 
     MFS_DirEnt_t dir_buffer;
+    for (int i = 0; i < SIZE_BLOCK / SIZE_DIR; i++)
+    {
+        log_read(&dir_buffer, SIZE_DIR);
+
+        if (strcmp(dir_buffer.name, name) == 0)
+        {
+            int dir_inum = dir_buffer.inum;
+
+            int dir_addr = imap_cache[dir_inum];
+            seek_block(block_to_addr(dir_addr));
+            log_read(&stat_buffer, SIZE_INODE_H);
+            // size = 2 <-> .. and . the dir is empty
+            if (stat_buffer.type == MFS_DIRECTORY && stat_buffer.size > 2)
+            {
+                perror("MFS_UNLINK the dir is not empty");
+                char answer[SERVER_BUFFER_SIZE] = "-1";
+                UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+
+                return -1;
+            }
+
+            // retour au parent_dir_addr
+            seek_block(parent_block);
+            break;
+        }
+    }
+
+    // Reecriture du block Dir
     for (int i = 0; i < SIZE_BLOCK / SIZE_DIR; i++)
     {
         log_read(&dir_buffer, SIZE_DIR);
@@ -857,10 +885,12 @@ int MFS_Unlink_SERVER(int pinum, char *name)
             strcpy(dir_buffer.name, "");
             dir_buffer.inum = -1;
             log_write(&dir_buffer, SIZE_DIR);
+            // on remonte, pour rester "en haut du block"
+            lseek(fd, -SIZE_DIR, SEEK_CUR);
         }
     }
 
-    seek_block(addr_to_block(dir_addr));
+    seek_block(addr_to_block(parent_dir_addr));
 
     // DEBUG on a bien un link le file
     // scan_dir();
