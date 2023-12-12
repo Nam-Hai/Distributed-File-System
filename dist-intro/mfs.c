@@ -30,11 +30,11 @@ int MFS_Init(char *hostname, int port)
     rc = UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SERVER_BUFFER_SIZE];
-
     UDP_Read(cd, &sockaddr, answer, SERVER_BUFFER_SIZE);
-    printf("CLIENT PROXY end ============= INIT\nanswer : %s\n", answer);
 
-    return strcmp(answer, "ok") == 0 ? cd : -1;
+    int result = atoi(answer);
+    printf("CLIENT PROXY end ============= INIT\nanswer : %s %d\n", answer, result);
+    return result;
 };
 
 int fd;
@@ -120,7 +120,7 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     if (fd == -1)
     {
         perror("open");
-        char answer[SERVER_BUFFER_SIZE] = "crash";
+        char answer[SERVER_BUFFER_SIZE] = "-1";
         UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return 1;
     }
@@ -230,7 +230,7 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
 
     server_addr = addr;
 
-    char answer[SERVER_BUFFER_SIZE] = "ok";
+    char answer[SERVER_BUFFER_SIZE] = "0";
     UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
 
     return rc;
@@ -247,10 +247,10 @@ int MFS_Lookup(int pinum, char name[FILE_NAME_SIZE])
     strcpy(message.name, name);
 
     struct sockaddr_in read_addr;
-    int rc = UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
+    UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SERVER_BUFFER_SIZE];
-    rc = UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
+    UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
     int result = atoi(answer);
     printf("CLIENT PROXY end ============= LOOKUP\nanswer : %s %d\n", answer, result);
     return result;
@@ -299,7 +299,7 @@ int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE])
             char answer[SERVER_BUFFER_SIZE];
             snprintf(answer, sizeof(answer), "%d", dir_buffer.inum);
 
-            int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+            UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
             return 0;
         }
         if (strcmp(dir_buffer.name, "") == 0)
@@ -307,16 +307,14 @@ int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE])
             // on a atteint la fin du block
             // file dont exist
             char answer[SERVER_BUFFER_SIZE] = "-1";
-            int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+            UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
             return -1;
             break;
         }
     }
-
-    char answer[SERVER_BUFFER_SIZE] = "ok";
-    printf("lookup args : %d, %s\n", pinum, name);
-    int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-    return rc;
+    char answer[SERVER_BUFFER_SIZE] = "-1";
+    UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+    return -1;
 };
 
 int MFS_Stat(int inum, MFS_Stat_t *m)
@@ -444,8 +442,9 @@ int MFS_Creat(int pinum, int type, char *name)
 
     rc = UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
 
-    printf("CLIENT PROXY end ============= CREAT\n");
-    return rc;
+    int result = atoi(answer);
+    printf("CLIENT PROXY end ============= Creat\nanswer : %s %d\n", answer, result);
+    return result;
 };
 
 int MFS_Creat_SERVER(int pinum, int type, char *name)
@@ -469,12 +468,17 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     if (stat_buffer.type != MFS_DIRECTORY)
     {
         perror("MFS_CREAT pinum not a directory");
+
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
     if (stat_buffer.size < 1)
     {
         // il y a forcement .. et .
         perror("MFS_CREAT directory miss initialiazed, size = 0");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
 
@@ -497,9 +501,8 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
         if (strcmp(dir_buffer.name, name) == 0)
         {
             // FILE ALREADY EXIST OMG
-            char answer[SERVER_BUFFER_SIZE] = "ok";
-            printf("write args : pinum %d, type %d, name %s", pinum, type, name);
-            int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+            char answer[SERVER_BUFFER_SIZE] = "0";
+            UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
             return 0;
         }
         if (strcmp(dir_buffer.name, "") == 0)
@@ -568,13 +571,10 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     update_checkpoint();
 
     //////////////////////////////////////////////////////////
-    char answer[SERVER_BUFFER_SIZE] = "ok";
 
-    printf("write args : pinum %d, type %d, name %s", pinum, type, name);
-
-    int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-
-    return rc;
+    char answer[SERVER_BUFFER_SIZE] = "0";
+    UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+    return 0;
 };
 
 int MFS_Unlink(int pinum, char *name)
