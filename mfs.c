@@ -8,6 +8,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+char *file_system_disk = "filesystem.img";
+
 struct sockaddr_in sockaddr;
 
 int cd = -1;
@@ -135,7 +137,7 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     sd = _sd;
     printf("SERVER PROXY ============= INIT\n");
 
-    fd = open("filesystem.img", O_RDWR | O_CREAT, S_IRWXU | S_IRUSR);
+    fd = open(file_system_disk, O_RDWR | O_CREAT, S_IRWXU | S_IRUSR);
     if (fd == -1)
     {
         perror("open");
@@ -170,6 +172,9 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
         UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return 0;
     }
+
+    // Init a file system with a root dir, and a file foo in root dir
+    // 2 Data Block, 2 Inode, 1 Imap, 1 Checkpoint
 
     off_t new_size = 1024 * 1024; // 1 MB
     // Set the size of the file
@@ -450,7 +455,7 @@ int MFS_Write(int inum, char buffer[MFS_BLOCK_SIZE], int block)
 
     struct sockaddr_in read_addr;
 
-    int rc = UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
+    UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SERVER_BUFFER_SIZE];
     UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
@@ -564,7 +569,7 @@ int MFS_Read(int inum, char buffer[MFS_BLOCK_SIZE], int block)
 
     struct sockaddr_in read_addr;
 
-    int rc = UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
+    UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SIZE_BLOCK];
     UDP_Read(cd, &read_addr, (char *)answer, SIZE_BLOCK);
@@ -795,7 +800,7 @@ int MFS_Unlink(int pinum, char *name)
 
     struct sockaddr_in read_addr;
 
-    int rc = UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
+    UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SERVER_BUFFER_SIZE];
     UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);

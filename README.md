@@ -1,4 +1,3 @@
-
 # Distributed Systems: Introduction
 
 A simple UDP client and server:
@@ -15,3 +14,14 @@ run the client. You will likely then want to kill the server if you are done.
 If you want to run these on different machines, you'll have to change the client
 to send messages to the machine the server is running upon, instead of `localhost`.
 
+# Init Project
+
+Compile code
+```bash
+make
+```
+
+Run udp client
+```bash
+./server & ./client
+```
