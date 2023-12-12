@@ -12,7 +12,8 @@ static int client_port = 20000;
 enum BLOCK_ENUM
 {
     MFS_DIRECTORY,
-    MFS_REGULAR_FILE
+    MFS_REGULAR_FILE,
+    MFS_ERROR = -1
 };
 
 #define MFS_BLOCK_SIZE (4096)

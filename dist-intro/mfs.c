@@ -22,18 +22,18 @@ int MFS_Init(char *hostname, int port)
         cd = UDP_Open(port);
     }
 
-    int rc = UDP_FillSockAddr(&sockaddr, hostname, server_port);
+    UDP_FillSockAddr(&sockaddr, hostname, server_port);
 
     Message_t message;
     message.message_type = M_INIT;
 
-    rc = UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
+    UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SERVER_BUFFER_SIZE];
     UDP_Read(cd, &sockaddr, answer, SERVER_BUFFER_SIZE);
 
     int result = atoi(answer);
-    printf("CLIENT PROXY end ============= INIT\nanswer : %s %d\n", answer, result);
+    printf("CLIENT PROXY end ============= INIT\nanswer : %d\n", result);
     return result;
 };
 
@@ -252,7 +252,7 @@ int MFS_Lookup(int pinum, char name[FILE_NAME_SIZE])
     char answer[SERVER_BUFFER_SIZE];
     UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
     int result = atoi(answer);
-    printf("CLIENT PROXY end ============= LOOKUP\nanswer : %s %d\n", answer, result);
+    printf("CLIENT PROXY end ============= LOOKUP\nanswer : %d\n", result);
     return result;
 };
 
@@ -271,12 +271,16 @@ int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE])
     if (stat_buffer.type != MFS_DIRECTORY)
     {
         perror("MFS_CREAT pinum not a directory");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
     if (stat_buffer.size < 1)
     {
         // il y a forcement .. et .
         perror("MFS_CREAT directory miss initialiazed, size = 0");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
 
@@ -312,6 +316,8 @@ int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE])
             break;
         }
     }
+    // on a atteint la fin du block
+    // file dont exist
     char answer[SERVER_BUFFER_SIZE] = "-1";
     UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
     return -1;
@@ -327,35 +333,51 @@ int MFS_Stat(int inum, MFS_Stat_t *m)
 
     struct sockaddr_in read_addr;
 
-    int rc = UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
+    UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
-    char answer[SERVER_BUFFER_SIZE];
+    // char answer[SERVER_BUFFER_SIZE];
+    MFS_Stat_t m_stat_proxy;
 
-    rc = UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
+    // UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
+    UDP_Read(cd, &read_addr, (char *)&m_stat_proxy, sizeof(MFS_Stat_t));
 
-    rc = UDP_Read(cd, &read_addr, (char *)m, sizeof(MFS_Stat_t));
+    // int result = atoi(answer);
+    // printf("CLIENT PROXY end 1 ============= LOOKUP\nanswer : %d\n", result);
+    printf("CLIENT PROXY end 2 ============= STAT\nm_stat : type %d size %d\n", m_stat_proxy.type, m_stat_proxy.size);
 
-    printf("CLIENT PROXY end ============= STAT\nanswer : %s\n", answer);
-    printf("CLIENT PROXY end ============= STAT\nm_stat : %d\n", m->type);
-    return rc;
+    m->size = m_stat_proxy.size;
+    m->type = m_stat_proxy.type;
+
+    if (m_stat_proxy.type == -1)
+        return -1;
+    return 0;
 };
 int MFS_Stat_SERVER(int inum)
 {
     printf("SERVER PROXY ============= STAT\n");
 
-    MFS_Stat_t m_stat;
-    m_stat.type = MFS_DIRECTORY;
-    m_stat.size = 20;
+    MFS_Stat_t stat_buffer;
+    // Explicitement pour lookup -> inum = -1
+    if (inum == -1)
+    {
+        stat_buffer.type = -1;
+        stat_buffer.size = 0;
+        UDP_Write(sd, server_addr, (char *)&stat_buffer, sizeof(MFS_Stat_t));
+        return -1;
+    }
 
-    // DO SOMETHING
+    // DO SOMETHING //////////////////////////////
 
-    char answer[SERVER_BUFFER_SIZE] = "ok";
+    off_t inode_addr = imap_cache[inum];
+    printf("inode_addr : %lld\n", inode_addr);
+    seek_block(addr_to_block(inode_addr));
 
-    printf("Stat args : %d\n", inum);
-    int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-    rc = UDP_Write(sd, server_addr, (char *)&m_stat, sizeof(MFS_Stat_t));
+    log_read(&stat_buffer, SIZE_INODE_H);
 
-    return rc;
+    //////////////////////////////////////////////
+
+    UDP_Write(sd, server_addr, (char *)&stat_buffer, sizeof(MFS_Stat_t));
+    return 0;
 };
 int MFS_Write(int inum, char buffer[MFS_BLOCK_SIZE], int block)
 {
@@ -436,14 +458,14 @@ int MFS_Creat(int pinum, int type, char *name)
 
     struct sockaddr_in read_addr;
 
-    int rc = UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
+    UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SERVER_BUFFER_SIZE];
 
-    rc = UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
+    UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
 
     int result = atoi(answer);
-    printf("CLIENT PROXY end ============= Creat\nanswer : %s %d\n", answer, result);
+    printf("CLIENT PROXY end ============= Creat\nanswer : %d\n", result);
     return result;
 };
 
@@ -530,14 +552,14 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     {
         // Header
         MFS_Stat_t inode;
-        inode.type = type; // file
+        inode.type = 1; // file
         inode.size = 0;    // il y a rien dedans pour l'instant
         log_write(&inode, SIZE_INODE_H);
         imap_cache[checkpoint.inode_number] = inode_addr;
     }
     else if (type == MFS_DIRECTORY)
     {
-        // Creer un dir qui point vers root et parent
+        // Creer un dir qui pointe vers root et parent
         MFS_DirEnt_t root_dir;
         strcpy(root_dir.name, ".");
         root_dir.inum = 0;
@@ -552,7 +574,7 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
 
         // Header
         MFS_Stat_t inode;
-        inode.type = type; // dir
+        inode.type = 0; // dir
         inode.size = 0;    // il y a rien dedans pour l'instant
         log_write(&inode, SIZE_INODE_H);
         imap_cache[checkpoint.inode_number] = inode_addr;
