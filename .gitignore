@@ -1,0 +1,10 @@
+client
+client.o
+server
+server.o
+libmfs.so
+libudp.so
+mfs.o
+udp.o
+
+.vscode

@@ -1,12 +1,4 @@
 {
-  "C_Cpp.errorSquiggles": "disabled",
-  "files.associations": {
-    "*.page-template": "vue",
-    "*.layout-template": "vue",
-    "*.vue": "vue",
-    "select.h": "c",
-    "in.h": "c"
-  },
   "C_Cpp_Runner.cCompilerPath": "clang",
   "C_Cpp_Runner.cppCompilerPath": "clang++",
   "C_Cpp_Runner.debuggerPath": "lldb",
