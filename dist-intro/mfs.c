@@ -773,25 +773,23 @@ int MFS_Unlink(int pinum, char *name)
 
     int rc = UDP_Write(fd, &sockaddr, (char *)&message, sizeof(Message_t));
 
+
     char answer[SERVER_BUFFER_SIZE];
-
-    rc = UDP_Read(fd, &read_addr, answer, SERVER_BUFFER_SIZE);
-
-    printf("CLIENT PROXY end ============= UNLINK\n");
+    UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
+    int result = atoi(answer);
+    printf("CLIENT PROXY end ============= UNLINK\nanswer : %d\n", result);
     return rc;
 };
 int MFS_Unlink_SERVER(int pinum, char *name)
 {
     printf("SERVER PROXY ============= UNLINK\n");
-    // DO SOMETHING
+    // DO SOMETHING ///////////////////////////////////
 
-    char answer[SERVER_BUFFER_SIZE] = "ok";
 
-    printf("write args : pinum %d, name %s", pinum, name);
-
-    int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-
-    return rc;
+    ///////////////////////////////////////////////////
+    char answer[SERVER_BUFFER_SIZE] = "0";
+    UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+    return 0;
 };
 
 int MFS_Shutdown()
