@@ -292,7 +292,7 @@ int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE])
         log_read(&dir_buffer, SIZE_DIR);
 
         // DEBUG
-        printf("dir name %s\n", dir_buffer.name);
+        // printf("dir name %s\n", dir_buffer.name);
         if (strcmp(dir_buffer.name, name) == 0)
         {
             // file exist
@@ -493,7 +493,7 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
         log_read(&dir_buffer, SIZE_DIR);
 
         // DEBUG
-        printf("dir name %s\n", dir_buffer.name);
+        // printf("dir name %s\n", dir_buffer.name);
         if (strcmp(dir_buffer.name, name) == 0)
         {
             // FILE ALREADY EXIST OMG
