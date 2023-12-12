@@ -54,6 +54,7 @@ int main(int argc, char *argv[])
                 break;
             case 7:
                 MFS_Shutdown_SERVER();
+                return 0;
                 break;
             default:
                 printf("default");

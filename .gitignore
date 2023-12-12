@@ -1,0 +1,10 @@
+dist-intro/client
+dist-intro/client.o
+dist-intro/server
+dist-intro/server.o
+dist-intro/mfs.o
+dist-intro/udp.o
+dist-intro/libmfs.so
+dist-intro/libudp.so
+
+.vscode

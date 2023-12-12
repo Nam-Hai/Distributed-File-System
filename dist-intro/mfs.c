@@ -103,7 +103,25 @@ ssize_t log_read(void *buffer, enum SIZE_ENUM size)
     return s;
 }
 
-void update_checkpoint()
+// helper, print a directory
+void scan_dir()
+{
+    off_t addr = lseek(fd, 0, SEEK_CUR);
+    MFS_DirEnt_t dir_buffer;
+    for (int i = 0; i < SIZE_BLOCK / SIZE_DIR; i++)
+    {
+        log_read(&dir_buffer, SIZE_DIR);
+
+        if (strcmp(dir_buffer.name, "") != 0)
+        {
+            printf("dir name %s inum %d\n", dir_buffer.name, dir_buffer.inum);
+        }
+    }
+
+    lseek(fd, addr, SEEK_SET);
+}
+
+void update_checkpoint_region()
 {
     // checkpoint region
     seek_block(0);
@@ -209,7 +227,7 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     // Header
     MFS_Stat_t inode_root;
     inode_root.type = MFS_DIRECTORY;
-    inode_root.size = 1;
+    inode_root.size = 3;
     checkpoint.inode_number++;
     log_write(&inode_root, SIZE_INODE_H);
 
@@ -256,7 +274,7 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
         printf("imap_cache[%d]: %ld\n", i, (long)imap_cache[i]);
     }
 
-    update_checkpoint();
+    update_checkpoint_region();
 
     UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
     return 0;
@@ -721,6 +739,8 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     }
     else if (type == MFS_DIRECTORY)
     {
+
+        off_t block_addr = lseek(fd, 0, SEEK_CUR);
         // Creer un dir qui pointe vers root et parent
         MFS_DirEnt_t root_dir;
         strcpy(root_dir.name, ".");
@@ -732,13 +752,15 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
         root_dir.inum = pinum;
         log_write(&root_dir, SIZE_DIR);
 
-        seek_next_block();
+        inode_addr = seek_next_block();
 
         // Header
         MFS_Stat_t inode;
         inode.type = 0; // dir
-        inode.size = 0; // il y a rien dedans pour l'instant
+        inode.size = 2; // il y a rien dedans pour l'instant
         log_write(&inode, SIZE_INODE_H);
+        log_write(&block_addr, SIZE_ADDR);
+
         imap_cache[checkpoint.inode_number] = inode_addr;
     }
     else
@@ -749,10 +771,12 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     // Creer une nouvelle imap
     imap_addr = seek_next_block();
     log_write(&imap_cache, SIZE_BLOCK);
+
     checkpoint.imaps_addr = imap_addr;
 
+    // on pourrait aussi n'update checkpoit que lorsqu'on MFS_SHUTDOWN
     // update checkpoint, on devrait update checkpoint periodiquement mais bon c'est pas pour tout de suite
-    update_checkpoint();
+    update_checkpoint_region();
 
     //////////////////////////////////////////////////////////
 
@@ -771,20 +795,75 @@ int MFS_Unlink(int pinum, char *name)
 
     struct sockaddr_in read_addr;
 
-    int rc = UDP_Write(fd, &sockaddr, (char *)&message, sizeof(Message_t));
-
+    int rc = UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SERVER_BUFFER_SIZE];
     UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
     int result = atoi(answer);
     printf("CLIENT PROXY end ============= UNLINK\nanswer : %d\n", result);
-    return rc;
+    return result;
 };
 int MFS_Unlink_SERVER(int pinum, char *name)
 {
     printf("SERVER PROXY ============= UNLINK\n");
     // DO SOMETHING ///////////////////////////////////
 
+    off_t parent_inode_addr = imap_cache[pinum];
+
+    if (pinum < 0 || parent_inode_addr == 0)
+    {
+        perror("MFS_UNLINK parent inode overflow");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+        return -1;
+    }
+
+    seek_block(addr_to_block(parent_inode_addr));
+    MFS_Stat_t stat_buffer;
+    log_read(&stat_buffer, SIZE_INODE_H);
+
+    if (stat_buffer.type != MFS_DIRECTORY)
+    {
+        perror("MFS_UNLINK pinum not a directory");
+
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+        return -1;
+    }
+
+    // TODOOOOOO : TEST IF DIR 
+    // AND CHECK IF THE DIR IS EMPTY
+    // WE CANT RM -RF BY DEFAULT
+
+    off_t dir_addr;
+    log_read(&dir_addr, SIZE_ADDR);
+    int block = addr_to_block(dir_addr);
+    seek_block(addr_to_block(dir_addr));
+
+    MFS_DirEnt_t dir_buffer;
+    for (int i = 0; i < SIZE_BLOCK / SIZE_DIR; i++)
+    {
+        log_read(&dir_buffer, SIZE_DIR);
+
+        // on remonte l'aiguille
+        lseek(fd, -SIZE_DIR, SEEK_CUR);
+
+        if (strcmp(dir_buffer.name, name) != 0)
+        {
+            log_write(&dir_buffer, SIZE_DIR);
+        }
+        else
+        {
+            strcpy(dir_buffer.name, "");
+            dir_buffer.inum = -1;
+            log_write(&dir_buffer, SIZE_DIR);
+        }
+    }
+
+    seek_block(addr_to_block(dir_addr));
+
+    // DEBUG on a bien un link le file
+    // scan_dir();
 
     ///////////////////////////////////////////////////
     char answer[SERVER_BUFFER_SIZE] = "0";
@@ -799,13 +878,15 @@ int MFS_Shutdown()
     message.message_type = M_SHUTDOWN;
     struct sockaddr_in read_addr;
 
-    UDP_Write(fd, &sockaddr, (char *)&message, sizeof(Message_t));
+    UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SERVER_BUFFER_SIZE];
     UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
     int result = atoi(answer);
     printf("CLIENT PROXY end ============= SHUTDOWN\nanswer : %d\n", result);
-    UDP_Close(sd);
+
+    UDP_Close(cd);
+
     exit(0);
     return result;
 };
@@ -816,6 +897,5 @@ int MFS_Shutdown_SERVER()
     UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
 
     UDP_Close(sd);
-    exit(0);
     return 0;
 };

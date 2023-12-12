@@ -36,9 +36,14 @@ int main(int argc, char *argv[])
 
     MFS_Creat(0, MFS_DIRECTORY, "myDir");
 
+    inum = MFS_Lookup(0, "myDir");
+
+    int pinum = MFS_Lookup(inum, "..");
     // MFS_Stat(46, &m);
 
     // MFS_Write(0, "buffer string", 2);
+    printf("myDyr inum : %d, pinum : %d\n", inum, pinum);
+    MFS_Unlink(pinum, "myDir");
 
     MFS_Shutdown();
 
