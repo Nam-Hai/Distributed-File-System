@@ -60,8 +60,8 @@ typedef struct __Message_t
 
 typedef struct __Checkpoint_t
 {
-    off_t imaps_addr;
     int inode_number;
+    off_t imaps_addr;
 } Checkpoint_t;
 
 // used for write, read, seek wrapper in mfs.c
@@ -87,8 +87,8 @@ int MFS_Stat_SERVER(int inum);
 int MFS_Write(int inum, char *buffer, int block);
 int MFS_Write_SERVER(int inum, char *buffer, int block);
 
-int MFS_Read(int inum, char *buffer, int block);
-int MFS_Read_SERVER(int inum, char *buffer, int block);
+int MFS_Read(int inum, char buffer[SIZE_BLOCK], int block);
+int MFS_Read_SERVER(int inum, char buffer[SIZE_BLOCK], int block);
 
 int MFS_Creat(int pinum, int type, char *name);
 int MFS_Creat_SERVER(int pinum, int type, char *name);

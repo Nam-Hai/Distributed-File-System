@@ -113,6 +113,7 @@ void update_checkpoint()
 struct sockaddr_in *server_addr;
 int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
 {
+    server_addr = addr;
     sd = _sd;
     printf("SERVER PROXY ============= INIT\n");
 
@@ -123,6 +124,33 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
         char answer[SERVER_BUFFER_SIZE] = "-1";
         UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return 1;
+    }
+
+    char answer[SERVER_BUFFER_SIZE] = "0";
+
+    // Si je veux utiliser directement image_disk
+    // DEBUG
+    if (0)
+    {
+        printf("IMAGE_DISK_OPEN");
+        seek_block(0);
+        log_read(&checkpoint, sizeof(Checkpoint_t));
+
+        imap_addr = seek_block(addr_to_block(checkpoint.imaps_addr));
+        seek_imap();
+        log_read(imap_cache, SIZE_BLOCK);
+
+        for (int i = 0; i < SIZE_BLOCK / SIZE_ADDR; i++)
+        {
+            if (imap_cache[i] == 0)
+            {
+                break;
+            }
+            printf("imap_cache[%d]: %ld\n", i, (long)imap_cache[i]);
+        }
+
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+        return 0;
     }
 
     off_t new_size = 1024 * 1024; // 1 MB
@@ -158,22 +186,6 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     printf("size image : %d\n", size);
 
     // block 1
-    // Creation d'un file foo
-    off_t foo_addr = seek_next_block();
-    char buffer[MFS_BLOCK_SIZE] = "Ceci est un file";
-    log_write(&buffer, SIZE_BLOCK);
-    off_t a = lseek(fd, 0, SEEK_CUR);
-    printf("Block de data %d, block apres ecriture %d, curr_block %d\n", addr_to_block(foo_addr), addr_to_block(a), curr_block); // Ecrire SIZE_BLOCK amene bien au block suivant
-
-    // block 2
-    MFS_Stat_t inode_file;
-    inode_file.type = MFS_REGULAR_FILE;
-    inode_file.size = 1; // le file ne fait que 1 seul block data, c.a.d l'inode ne va pointer que vers 1 block
-
-    checkpoint.inode_number++;
-    log_write(&inode_file, SIZE_INODE_H);
-
-    // block 3
     // Creation d'un directory root
     off_t root_block_offset = seek_next_block();
     MFS_DirEnt_t root_dir;
@@ -190,7 +202,7 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     root_dir.inum = 1; // foo sera le 2nd inode de la imap
     log_write(&root_dir, SIZE_DIR);
 
-    // block 4
+    // block 2
     // Creation du INode Dir Root
     off_t inode_addr = seek_next_block();
 
@@ -204,15 +216,33 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     // Inode point vers le dir
     log_write(&root_block_offset, SIZE_ADDR);
 
+    // block 3
+    // Creation d'un file foo
+    off_t foo_addr = seek_next_block();
+    char buffer[MFS_BLOCK_SIZE] = "Ceci est un file";
+    log_write(&buffer, SIZE_BLOCK);
+
+    off_t foo_inode_addr = lseek(fd, 0, SEEK_CUR);
+    // block 4
+    MFS_Stat_t inode_file;
+    inode_file.type = MFS_REGULAR_FILE;
+    inode_file.size = 1; // le file ne fait que 1 seul block data, c.a.d l'inode ne va pointer que vers 1 block
+
+    checkpoint.inode_number++;
+    log_write(&inode_file, SIZE_INODE_H);
+    log_write(&foo_addr, SIZE_ADDR);
+
     // block 5
     // Init l'imap
     imap_addr = seek_next_block();
     checkpoint.imaps_addr = imap_addr;
 
     // root inode est bien l'inode avec inum == 0, c.a.d la premiere addresse de imap
+    // inode_addr = block_to_addr(2);
+
     log_write(&inode_addr, SIZE_ADDR);
-    inode_addr = block_to_addr(2);
-    log_write(&inode_addr, SIZE_ADDR);
+
+    log_write(&foo_inode_addr, SIZE_ADDR);
 
     seek_imap();
     log_read(imap_cache, SIZE_BLOCK);
@@ -228,12 +258,8 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
 
     update_checkpoint();
 
-    server_addr = addr;
-
-    char answer[SERVER_BUFFER_SIZE] = "0";
     UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-
-    return rc;
+    return 0;
 };
 
 int MFS_Lookup(int pinum, char name[FILE_NAME_SIZE])
@@ -263,14 +289,23 @@ int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE])
     // aller au dir pinum
     // c'est ici qu'on check si pinum exist
     off_t parent_inode_addr = imap_cache[pinum];
+
+    if (pinum < 0 || parent_inode_addr == 0)
+    {
+        perror("MFS_Lookup pinum is not in imap");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+        return -1;
+    }
     seek_block(addr_to_block(parent_inode_addr));
+
     // on dans le inode du dir parent
     MFS_Stat_t stat_buffer;
     log_read(&stat_buffer, SIZE_INODE_H);
 
     if (stat_buffer.type != MFS_DIRECTORY)
     {
-        perror("MFS_CREAT pinum not a directory");
+        perror("MFS_Lookup pinum not a directory");
         char answer[SERVER_BUFFER_SIZE] = "-1";
         UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
@@ -278,7 +313,7 @@ int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE])
     if (stat_buffer.size < 1)
     {
         // il y a forcement .. et .
-        perror("MFS_CREAT directory miss initialiazed, size = 0");
+        perror("MFS_Lookup directory miss initialiazed, size = 0");
         char answer[SERVER_BUFFER_SIZE] = "-1";
         UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
@@ -369,7 +404,14 @@ int MFS_Stat_SERVER(int inum)
     // DO SOMETHING //////////////////////////////
 
     off_t inode_addr = imap_cache[inum];
-    printf("inode_addr : %lld\n", inode_addr);
+    if (inode_addr == 0)
+    {
+        stat_buffer.type = -1;
+        stat_buffer.size = 0;
+        UDP_Write(sd, server_addr, (char *)&stat_buffer, sizeof(MFS_Stat_t));
+        return -1;
+    }
+
     seek_block(addr_to_block(inode_addr));
 
     log_read(&stat_buffer, SIZE_INODE_H);
@@ -393,25 +435,110 @@ int MFS_Write(int inum, char buffer[MFS_BLOCK_SIZE], int block)
     int rc = UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SERVER_BUFFER_SIZE];
-
-    rc = UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
-
-    printf("CLIENT PROXY end ============= WRITE\n");
-    return rc;
+    UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
+    int result = atoi(answer);
+    printf("CLIENT PROXY end ============= WRITE\nanswer : %d\n", result);
+    return result;
 };
+
+// Comme j'implemente pas d'histoire de buffer d'ecriture pour pouvoir ecrire plusieur data block d'un coup
+// J'ai rendu possible (en tout cas je crois) que si le buffer est plus grand que MFS_BLOCK_SIZE alors
+// MFS_WRITE_SERVER decoupe buffer en plusieur block (si ya la place dans l'inode)
 int MFS_Write_SERVER(int inum, char *buffer, int block)
 {
     printf("SERVER PROXY ============= WRITE\n");
 
-    // DO SOMETHING
+    // DO SOMETHING //////////////////////////////////////////
 
-    char answer[SERVER_BUFFER_SIZE] = "ok";
+    off_t inode_addr = imap_cache[inum];
 
-    printf("write args : inum %d buffer %s block %d\n", inum, buffer, block);
+    if (inum < 0 || inode_addr == 0)
+    {
+        perror("MFS_WRITE inode overflow");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+        return -1;
+    }
+    seek_block(addr_to_block(inode_addr));
 
-    int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+    MFS_Stat_t inode_file;
+    log_read(&inode_file, SIZE_INODE_H);
 
-    return rc;
+    if (inode_file.type != MFS_REGULAR_FILE)
+    {
+        perror("MFS_WRITE tried to write a Dir");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+        return -1;
+    }
+
+    // je vais pas prendre en compte pour l'instant le cas ou le inode est full
+    // c'est a dire que le file est tellement long qu'il faudrait plusieur inode cad inode->inode->data_block
+    int size = inode_file.size;
+
+    if (block > size + 1)
+    {
+        perror("MFS_WRITE block write overflow");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+        return -1;
+    }
+
+    // dans la doc, il y a ecrit qu'on prend que 14 pointer par inode
+    off_t pointers[14];
+    log_read(&pointers, SIZE_ADDR * 14);
+
+    // end of file
+    seek_imap();
+
+    int nb_of_new_block = sizeof(buffer) / SIZE_BLOCK;
+    if (nb_of_new_block + size > 14)
+    {
+        perror("MFS_WRITE writing buffer too big");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+        return -1;
+    }
+
+    // char buf[20];
+    // char sth[6] = "asfg\0";
+    // char *ijl = strncpy(buf, sth + 8, 6);
+    // printf("strncpy %s\n", ijl);
+
+    for (int i = 0; i < nb_of_new_block; i++)
+    {
+        off_t block_addr = seek_next_block();
+        char block_buffer[SIZE_BLOCK];
+        strncpy(block_buffer, buffer + i * SIZE_BLOCK, SIZE_BLOCK);
+
+        log_write(&block_buffer, SIZE_BLOCK);
+
+        pointers[block + i] = block_addr;
+    }
+
+    // nouvelle inode
+    inode_addr = seek_next_block();
+    inode_file.type = MFS_REGULAR_FILE;
+    inode_file.size = size + nb_of_new_block;
+    log_write(&inode_file, SIZE_INODE_H);
+    log_write(&pointers, sizeof(pointers));
+
+    // nouvelle imap + checkpoint
+    checkpoint.inode_number++;
+
+    // j'update inode_cache
+    imap_cache[inum] = inode_addr;
+
+    // j'ajoute la nouvelle inode sur disk, imap_cache
+    imap_addr = seek_next_block();
+    checkpoint.imaps_addr = imap_addr;
+    log_write(&imap_cache, sizeof(imap_cache));
+
+    ////////////////////////////////////////////////////////
+    char answer[SERVER_BUFFER_SIZE] = "0";
+    UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+
+    return 0;
 };
 int MFS_Read(int inum, char buffer[MFS_BLOCK_SIZE], int block)
 {
@@ -426,25 +553,56 @@ int MFS_Read(int inum, char buffer[MFS_BLOCK_SIZE], int block)
 
     int rc = UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
-    char answer[SERVER_BUFFER_SIZE];
+    char answer[SIZE_BLOCK];
+    UDP_Read(cd, &read_addr, (char *)answer, SIZE_BLOCK);
 
-    rc = UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
+    strcpy(buffer, answer);
 
-    printf("CLIENT PROXY end ============= READ\n");
-    return rc;
+    int result = 0;
+    printf("CLIENT PROXY end ============= READ\nanswer : %d\n", result);
+    return result;
 };
 int MFS_Read_SERVER(int inum, char *buffer, int block)
 {
     printf("SERVER PROXY ============= READ\n");
-    // DO SOMETHING
+    // DO SOMETHING ////////////////////////////////////////
 
-    char answer[SERVER_BUFFER_SIZE] = "ok";
+    off_t inode_addr = imap_cache[inum];
 
-    printf("write args : inum %d buffer %s block %d\n", inum, buffer, block);
+    if (inum < 0 || inode_addr == 0)
+    {
+        perror("MFS_READ inode overflow");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+        return -1;
+    }
+    seek_block(addr_to_block(inode_addr));
 
-    int rc = UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+    MFS_Stat_t inode_file;
+    log_read(&inode_file, SIZE_INODE_H);
 
-    return rc;
+    if (block > inode_file.size)
+    {
+        perror("MFS_READ block overflow");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+        return -1;
+    }
+
+    lseek(fd, block * SIZE_ADDR, SEEK_CUR);
+    off_t block_addr;
+    log_read(&block_addr, SIZE_ADDR);
+
+    seek_block(addr_to_block(block_addr));
+
+    log_read(buffer, SIZE_BLOCK);
+
+    ////////////////////////////////////////////////////////
+    // char answer[SERVER_BUFFER_SIZE] = "0";
+    // UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+    UDP_Write(sd, server_addr, buffer, SIZE_BLOCK);
+
+    return 0;
 };
 
 int MFS_Creat(int pinum, int type, char *name)
@@ -483,6 +641,15 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     // aller au dir pinum
     // c'est ici qu'on check si pinum exist
     off_t parent_inode_addr = imap_cache[pinum];
+
+    if (pinum < 0 || parent_inode_addr == 0)
+    {
+        perror("MFS_CREAT inode overflow");
+        char answer[SERVER_BUFFER_SIZE] = "-1";
+        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
+        return -1;
+    }
+
     seek_block(addr_to_block(parent_inode_addr));
     MFS_Stat_t stat_buffer;
     log_read(&stat_buffer, SIZE_INODE_H);
@@ -505,7 +672,7 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     }
 
     // Je pars pour l'instand du principe que le block du dir est jamais remplis au max, ce n'est evidement pas toujours le cas
-    // Il faut alors quand ya plus de place, revenir dans le inode et alors creer un nouveau block du Dir et faire pointer le inode vers ce block
+    // Il faut alors revenir dans le inode et alors creer un nouveau block du Dir et faire pointer le inode vers ce block
     // lseek(fd, (stat_buffer.size - 1) * SIZE_ADDR, SEEK_CUR);
     off_t dir_addr;
     log_read(&dir_addr, SIZE_ADDR);
@@ -553,7 +720,7 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
         // Header
         MFS_Stat_t inode;
         inode.type = 1; // file
-        inode.size = 0;    // il y a rien dedans pour l'instant
+        inode.size = 0; // il y a rien dedans pour l'instant
         log_write(&inode, SIZE_INODE_H);
         imap_cache[checkpoint.inode_number] = inode_addr;
     }
@@ -575,7 +742,7 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
         // Header
         MFS_Stat_t inode;
         inode.type = 0; // dir
-        inode.size = 0;    // il y a rien dedans pour l'instant
+        inode.size = 0; // il y a rien dedans pour l'instant
         log_write(&inode, SIZE_INODE_H);
         imap_cache[checkpoint.inode_number] = inode_addr;
     }

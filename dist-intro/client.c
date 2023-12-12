@@ -15,22 +15,28 @@ int main(int argc, char *argv[])
 
     int port = client_port;
     int fd = MFS_Init(hostname, port);
+    char buffer[SIZE_BLOCK];
+
     if (fd == -1)
     {
         return 0;
     }
+
+    // MFS_Stat_t m;
+    // MFS_Stat(inum, &m);
+
+    int inum = MFS_Lookup(0, "foo");
+    MFS_Read(inum, buffer, 0);
+    printf("foo : %s\n", buffer);
+
+    MFS_Write(inum, "Jecris une nouvelle version de foo", 0);
+    inum = MFS_Lookup(0, "foo");
+    MFS_Read(inum, buffer, 0);
+    printf("foo after rewrite : %s\n", buffer);
+
     MFS_Creat(0, MFS_DIRECTORY, "myDir");
 
-    int inum = MFS_Lookup(0, "myDir");
-    printf("lookup res %d\n", inum);
-
-    MFS_Stat_t m;
-    MFS_Stat(inum, &m);
-
-    inum = MFS_Lookup(0, "fakeDir");
-    printf("lookup res %d\n", inum);
-
-    MFS_Stat(inum, &m);
+    // MFS_Stat(46, &m);
 
     // MFS_Write(0, "buffer string", 2);
 
