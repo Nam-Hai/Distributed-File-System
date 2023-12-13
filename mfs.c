@@ -654,7 +654,6 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     log_read(&dir_addr, SIZE_ADDR);
 
     seek_block(addr_to_block(dir_addr));
-    // lseek(fd, dir_addr, SEEK_SET);
 
     MFS_DirEnt_t dir_buffer;
     for (int i = 0; i < SIZE_BLOCK / SIZE_DIR; i++)
@@ -666,8 +665,6 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
         if (strcmp(dir_buffer.name, name) == 0)
         {
             // FILE ALREADY EXIST OMG
-            char answer[SERVER_BUFFER_SIZE] = "0";
-            UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
             return 0;
         }
         if (strcmp(dir_buffer.name, "") == 0)
