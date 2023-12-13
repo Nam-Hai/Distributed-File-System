@@ -6,24 +6,16 @@
 int main(int argc, char *argv[])
 {
     char *hostname = "localhost";
-    // int sd = UDP_Open(20);
-
-    // int *pointer;
-    // printf("pointer size %lu\n", sizeof(pointer));
-
-    // printf("pointer size %lu\n", sizeof(MFS_Stat_t));
 
     int port = client_port;
     int fd = MFS_Init(hostname, port);
-    char buffer[SIZE_BLOCK];
 
     if (fd == -1)
     {
         return 0;
     }
 
-    // MFS_Stat_t m;
-    // MFS_Stat(inum, &m);
+    char buffer[SIZE_BLOCK];
 
     int inum = MFS_Lookup(0, "foo");
     MFS_Read(inum, buffer, 0);

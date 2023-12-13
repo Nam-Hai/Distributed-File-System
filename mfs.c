@@ -9,6 +9,9 @@
 #include <sys/stat.h>
 
 char *file_system_disk = "filesystem.img";
+// 0, l'image est reset au lancement
+// 1, on utilise l'image tel quel
+int re_init_image_disk = 0;
 
 struct sockaddr_in sockaddr;
 
@@ -146,7 +149,7 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
 
     // Si je veux utiliser directement image_disk
     // DEBUG
-    if (0)
+    if (re_init_image_disk == 1)
     {
         printf("IMAGE_DISK_OPEN");
         seek_block(0);
@@ -626,7 +629,7 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
 
     if (pinum < 0 || parent_inode_addr == 0)
     {
-        perror("MFS_CREAT inode overflow");
+        perror("mfs_creat inode overflow");
         return -1;
     }
 
@@ -656,6 +659,7 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     seek_block(addr_to_block(dir_addr));
 
     MFS_DirEnt_t dir_buffer;
+    int empty_place = 0;
     for (int i = 0; i < SIZE_BLOCK / SIZE_DIR; i++)
     {
         log_read(&dir_buffer, SIZE_DIR);
@@ -664,11 +668,13 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
         // printf("dir name %s\n", dir_buffer.name);
         if (strcmp(dir_buffer.name, name) == 0)
         {
-            // FILE ALREADY EXIST OMG
+            // le dossier/file existe deja dans le dossier parent
+            // pas besoin de faire plus
             return 0;
         }
         if (strcmp(dir_buffer.name, "") == 0)
         {
+            empty_place = 1;
             // on remonte l'aiguille
             lseek(fd, -SIZE_DIR, SEEK_CUR);
 
@@ -680,8 +686,11 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
             break;
         }
     }
-
-    seek_block(addr_to_block(dir_addr));
+    if (empty_place == 0)
+    {
+        perror("MFS_Creat il n'y a plus de place dans le dossier");
+        return -1;
+    }
 
     // FILE
     // Creer une inode d'un file nomme name, pointe par le directory d'inum pinum
@@ -695,7 +704,6 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
         inode.type = 1; // file
         inode.size = 0; // il y a rien dedans pour l'instant
         log_write(&inode, SIZE_INODE_H);
-        imap_cache[checkpoint.inode_number] = inode_addr;
     }
     else if (type == MFS_DIRECTORY)
     {
@@ -720,8 +728,6 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
         inode.size = 2; // il y a rien dedans pour l'instant
         log_write(&inode, SIZE_INODE_H);
         log_write(&block_addr, SIZE_ADDR);
-
-        imap_cache[checkpoint.inode_number] = inode_addr;
     }
     else
     {
@@ -730,6 +736,7 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     }
 
     // Creer une nouvelle imap
+    imap_cache[checkpoint.inode_number] = inode_addr;
     imap_addr = seek_next_block();
     log_write(&imap_cache, SIZE_BLOCK);
 
