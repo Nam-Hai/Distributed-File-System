@@ -49,6 +49,8 @@ Le principe d'un log file system veut que l'on utilise le moins possible de `lse
 
 # Fonctionnement
 
+
+### Helpers
 Un log file system fonctionnant avec des blocs de taille fixe, j'ai mis en place des helpers permettant de naviguer plus facilement sur le disque de block en block.
 
 *Explication dans les commentaires*
@@ -130,6 +132,7 @@ ssize_t log_read(void *buffer, enum SIZE_ENUM size)
 }
 ```
 
+### MFS_CREAT
 On s'attardera sur le fonctionnement de la fonction `MFS_Creat_SERVER` qui encadre bien la philosophie et le fonctionnement général du code.
 
 ```C
