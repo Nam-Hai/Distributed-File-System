@@ -38,8 +38,11 @@ int main(int argc, char *argv[])
 
     inum = MFS_Lookup(0, "myDir");
 
+    MFS_Stat_t m;
+    MFS_Stat(inum, &m);
+    printf("Stat ==============> type %d, size %d\n", m.type, m.size);
+
     int pinum = MFS_Lookup(inum, "..");
-    // MFS_Stat(46, &m);
 
     // MFS_Write(0, "buffer string", 2);
     printf("myDyr inum : %d, pinum : %d\n", inum, pinum);

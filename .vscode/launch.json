@@ -6,8 +6,8 @@
       "type": "lldb",
       "request": "launch",
       "args": [],
-      "cwd": "/Users/namhai/Documents/Code/OS/Distributed-File-System/dist-intro",
-      "program": "/Users/namhai/Documents/Code/OS/Distributed-File-System/dist-intro/build/Debug/outDebug"
+      "cwd": "/Users/namhai/Documents/Code/OS/Distributed-File-System",
+      "program": "/Users/namhai/Documents/Code/OS/Distributed-File-System/build/Debug/outDebug"
     }
   ]
 }

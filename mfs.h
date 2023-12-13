@@ -82,7 +82,7 @@ int MFS_Lookup(int pinum, char name[FILE_NAME_SIZE]);
 int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE]);
 
 int MFS_Stat(int inum, MFS_Stat_t *m);
-int MFS_Stat_SERVER(int inum);
+int MFS_Stat_SERVER(int inum, MFS_Stat_t *m);
 
 int MFS_Write(int inum, char *buffer, int block);
 int MFS_Write_SERVER(int inum, char *buffer, int block);

@@ -141,12 +141,8 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     if (fd == -1)
     {
         perror("open");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-        return 1;
+        return -1;
     }
-
-    char answer[SERVER_BUFFER_SIZE] = "0";
 
     // Si je veux utiliser directement image_disk
     // DEBUG
@@ -169,7 +165,6 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
             printf("imap_cache[%d]: %ld\n", i, (long)imap_cache[i]);
         }
 
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return 0;
     }
 
@@ -281,7 +276,6 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
 
     update_checkpoint_region();
 
-    UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
     return 0;
 };
 
@@ -316,8 +310,6 @@ int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE])
     if (pinum < 0 || parent_inode_addr == 0)
     {
         perror("MFS_Lookup pinum is not in imap");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
     seek_block(addr_to_block(parent_inode_addr));
@@ -329,16 +321,12 @@ int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE])
     if (stat_buffer.type != MFS_DIRECTORY)
     {
         perror("MFS_Lookup pinum not a directory");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
     if (stat_buffer.size < 1)
     {
         // il y a forcement .. et .
         perror("MFS_Lookup directory miss initialiazed, size = 0");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
 
@@ -358,26 +346,18 @@ int MFS_Lookup_SERVER(int pinum, char name[FILE_NAME_SIZE])
         if (strcmp(dir_buffer.name, name) == 0)
         {
             // file exist
-            char answer[SERVER_BUFFER_SIZE];
-            snprintf(answer, sizeof(answer), "%d", dir_buffer.inum);
-
-            UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-            return 0;
+            return dir_buffer.inum;
         }
         if (strcmp(dir_buffer.name, "") == 0)
         {
             // on a atteint la fin du block
             // file dont exist
-            char answer[SERVER_BUFFER_SIZE] = "-1";
-            UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
             return -1;
             break;
         }
     }
     // on a atteint la fin du block
     // file dont exist
-    char answer[SERVER_BUFFER_SIZE] = "-1";
-    UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
     return -1;
 };
 
@@ -410,17 +390,16 @@ int MFS_Stat(int inum, MFS_Stat_t *m)
         return -1;
     return 0;
 };
-int MFS_Stat_SERVER(int inum)
+int MFS_Stat_SERVER(int inum, MFS_Stat_t *stat_buffer)
 {
     printf("SERVER PROXY ============= STAT\n");
 
-    MFS_Stat_t stat_buffer;
+    // MFS_Stat_t stat_buffer;
     // Explicitement pour lookup -> inum = -1
     if (inum == -1)
     {
-        stat_buffer.type = -1;
-        stat_buffer.size = 0;
-        UDP_Write(sd, server_addr, (char *)&stat_buffer, sizeof(MFS_Stat_t));
+        stat_buffer->type = -1;
+        stat_buffer->size = 0;
         return -1;
     }
 
@@ -429,19 +408,16 @@ int MFS_Stat_SERVER(int inum)
     off_t inode_addr = imap_cache[inum];
     if (inode_addr == 0)
     {
-        stat_buffer.type = -1;
-        stat_buffer.size = 0;
-        UDP_Write(sd, server_addr, (char *)&stat_buffer, sizeof(MFS_Stat_t));
+        stat_buffer->type = -1;
+        stat_buffer->size = 0;
         return -1;
     }
 
     seek_block(addr_to_block(inode_addr));
 
-    log_read(&stat_buffer, SIZE_INODE_H);
+    log_read(stat_buffer, SIZE_INODE_H);
 
     //////////////////////////////////////////////
-
-    UDP_Write(sd, server_addr, (char *)&stat_buffer, sizeof(MFS_Stat_t));
     return 0;
 };
 int MFS_Write(int inum, char buffer[MFS_BLOCK_SIZE], int block)
@@ -458,6 +434,7 @@ int MFS_Write(int inum, char buffer[MFS_BLOCK_SIZE], int block)
     UDP_Write(cd, &sockaddr, (char *)&message, sizeof(Message_t));
 
     char answer[SERVER_BUFFER_SIZE];
+
     UDP_Read(cd, &read_addr, answer, SERVER_BUFFER_SIZE);
     int result = atoi(answer);
     printf("CLIENT PROXY end ============= WRITE\nanswer : %d\n", result);
@@ -475,8 +452,6 @@ int MFS_Write_SERVER(int inum, char buffer[SIZE_BLOCK], int block)
     if (inum < 0 || inode_addr == 0)
     {
         perror("MFS_WRITE inode overflow");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
     seek_block(addr_to_block(inode_addr));
@@ -487,8 +462,6 @@ int MFS_Write_SERVER(int inum, char buffer[SIZE_BLOCK], int block)
     if (inode_file.type != MFS_REGULAR_FILE)
     {
         perror("MFS_WRITE tried to write a Dir");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
 
@@ -496,11 +469,10 @@ int MFS_Write_SERVER(int inum, char buffer[SIZE_BLOCK], int block)
     // c'est a dire que le file est tellement long qu'il faudrait plusieur inode cad inode->inode->data_block
     int size = inode_file.size;
 
+    // on peut pas sauter un block
     if (block > size + 1)
     {
         perror("MFS_WRITE block write overflow");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
 
@@ -514,8 +486,6 @@ int MFS_Write_SERVER(int inum, char buffer[SIZE_BLOCK], int block)
     if (block == size && 1 + size > 14)
     {
         perror("MFS_WRITE writing buffer too big");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
 
@@ -553,8 +523,6 @@ int MFS_Write_SERVER(int inum, char buffer[SIZE_BLOCK], int block)
     log_write(&imap_cache, SIZE_BLOCK);
 
     ////////////////////////////////////////////////////////
-    char answer[SERVER_BUFFER_SIZE] = "0";
-    UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
 
     return 0;
 };
@@ -590,8 +558,6 @@ int MFS_Read_SERVER(int inum, char *buffer, int block)
     if (inum < 0 || inode_addr == 0)
     {
         perror("MFS_READ inode overflow");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
     seek_block(addr_to_block(inode_addr));
@@ -616,9 +582,7 @@ int MFS_Read_SERVER(int inum, char *buffer, int block)
     log_read(buffer, SIZE_BLOCK);
 
     ////////////////////////////////////////////////////////
-    // char answer[SERVER_BUFFER_SIZE] = "0";
-    // UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-    UDP_Write(sd, server_addr, buffer, SIZE_BLOCK);
+    // UDP_Write(sd, server_addr, buffer, SIZE_BLOCK);
 
     return 0;
 };
@@ -663,8 +627,6 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     if (pinum < 0 || parent_inode_addr == 0)
     {
         perror("MFS_CREAT inode overflow");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
 
@@ -676,16 +638,12 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     {
         perror("MFS_CREAT pinum not a directory");
 
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
     if (stat_buffer.size < 1)
     {
         // il y a forcement .. et .
         perror("MFS_CREAT directory miss initialiazed, size = 0");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
 
@@ -771,6 +729,7 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     else
     {
         perror("MFS Creat type error");
+        return -1;
     }
 
     // Creer une nouvelle imap
@@ -784,9 +743,6 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
     update_checkpoint_region();
 
     //////////////////////////////////////////////////////////
-
-    char answer[SERVER_BUFFER_SIZE] = "0";
-    UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
     return 0;
 };
 
@@ -812,14 +768,15 @@ int MFS_Unlink_SERVER(int pinum, char *name)
 {
     printf("SERVER PROXY ============= UNLINK\n");
     // DO SOMETHING ///////////////////////////////////
+    // TODO / PAS SUR
+    // Un file / dir unlink a encore son inode referer dans l'imap
+    // On a juste dereferencer le file/dir de son parent directory
 
     off_t parent_inode_addr = imap_cache[pinum];
 
     if (pinum < 0 || parent_inode_addr == 0)
     {
         perror("MFS_UNLINK parent inode overflow");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
 
@@ -830,15 +787,8 @@ int MFS_Unlink_SERVER(int pinum, char *name)
     if (stat_buffer.type != MFS_DIRECTORY)
     {
         perror("MFS_UNLINK pinum not a directory");
-
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
-
-    // TODOOOOOO : TEST IF DIR
-    // AND CHECK IF THE DIR IS EMPTY
-    // WE CANT RM -RF BY DEFAULT
 
     off_t parent_dir_addr;
     log_read(&parent_dir_addr, SIZE_ADDR);
@@ -901,8 +851,6 @@ int MFS_Unlink_SERVER(int pinum, char *name)
     // scan_dir();
 
     ///////////////////////////////////////////////////
-    char answer[SERVER_BUFFER_SIZE] = "0";
-    UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
     return 0;
 };
 
@@ -928,9 +876,5 @@ int MFS_Shutdown()
 int MFS_Shutdown_SERVER()
 {
     printf("SERVER PROXY ============= SHUTDOWN\n");
-    char answer[SERVER_BUFFER_SIZE] = "0";
-    UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-
-    UDP_Close(sd);
     return 0;
 };
