@@ -24,6 +24,9 @@ server: server.o udp.o
 client: client.o udp.o
 	$(CC) $(OPTS) -c client.c -o client.o -lmfs -L.
 	$(CC)  -o client client.o udp.o -lmfs -L.
+
+	$(CC) $(OPTS) -c client_example_1.c -o client_example_1.o -lmfs -L.
+	$(CC)  -o client_example_1 client_example_1.o udp.o -lmfs -L.
 # this is a generic rule for .o files 
 #%.o: %.c 
 #	$(CC) $(OPTS) -c $< -o $@ -lmfs -L.

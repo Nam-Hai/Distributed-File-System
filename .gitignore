@@ -1,4 +1,6 @@
-client
+cliet
+client_example_1
+client_example_1.o
 client.o
 server
 server.o

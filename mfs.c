@@ -151,11 +151,12 @@ int MFS_Init_SERVER(int _sd, struct sockaddr_in *addr)
     // DEBUG
     if (re_init_image_disk == 1)
     {
-        printf("IMAGE_DISK_OPEN");
+        printf("IMAGE_DISK_OPEN\n");
         seek_block(0);
         log_read(&checkpoint, sizeof(Checkpoint_t));
 
         imap_addr = seek_block(addr_to_block(checkpoint.imaps_addr));
+        printf("imap block %d\n", addr_to_block(imap_addr));
         seek_imap();
         log_read(imap_cache, SIZE_BLOCK);
 
@@ -568,11 +569,14 @@ int MFS_Read_SERVER(int inum, char *buffer, int block)
     MFS_Stat_t inode_file;
     log_read(&inode_file, SIZE_INODE_H);
 
+    if (block == inode_file.size && 1 + inode_file.size > 14)
+    {
+        perror("MFS_READ block overflow");
+        return -1;
+    }
     if (block > inode_file.size)
     {
         perror("MFS_READ block overflow");
-        char answer[SERVER_BUFFER_SIZE] = "-1";
-        UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
         return -1;
     }
 
@@ -665,9 +669,10 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
         log_read(&dir_buffer, SIZE_DIR);
 
         // DEBUG
-        // printf("dir name %s\n", dir_buffer.name);
+        printf("dir name %s\n", dir_buffer.name);
         if (strcmp(dir_buffer.name, name) == 0)
         {
+            printf("file already exist");
             // le dossier/file existe deja dans le dossier parent
             // pas besoin de faire plus
             return 0;
@@ -879,6 +884,7 @@ int MFS_Shutdown()
 };
 int MFS_Shutdown_SERVER()
 {
+    close(fd);
     printf("SERVER PROXY ============= SHUTDOWN\n");
     return 0;
 };
