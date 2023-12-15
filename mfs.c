@@ -410,12 +410,12 @@ int MFS_Stat_SERVER(int inum, MFS_Stat_t *stat_buffer)
     // DO SOMETHING //////////////////////////////
 
     off_t inode_addr = imap_cache[inum];
-    if (inode_addr == 0)
-    {
-        stat_buffer->type = -1;
-        stat_buffer->size = 0;
-        return -1;
-    }
+    // if (inode_addr == 0)
+    // {
+    //     stat_buffer->type = -1;
+    //     stat_buffer->size = 0;
+    //     return -1;
+    // }
 
     seek_block(addr_to_block(inode_addr));
 
@@ -502,7 +502,7 @@ int MFS_Write_SERVER(int inum, char buffer[SIZE_BLOCK], int block)
 
     pointers[block] = block_addr;
 
-    // c'est pas une update
+    // un nouveau block est creer
     if (block == size)
     {
         size++;
@@ -516,7 +516,7 @@ int MFS_Write_SERVER(int inum, char buffer[SIZE_BLOCK], int block)
     log_write(&pointers, sizeof(pointers));
 
     // nouvelle imap + checkpoint
-    checkpoint.inode_number++;
+    // checkpoint.inode_number++;
 
     // j'update inode_cache
     imap_cache[inum] = inode_addr;
@@ -683,11 +683,18 @@ int MFS_Creat_SERVER(int pinum, int type, char *name)
             // on remonte l'aiguille
             lseek(fd, -SIZE_DIR, SEEK_CUR);
 
+            // on ajoute name to inum map
             MFS_DirEnt_t dir_content;
             checkpoint.inode_number++;
             strcpy(dir_content.name, name);
             dir_content.inum = checkpoint.inode_number;
             log_write(&dir_content, SIZE_DIR);
+
+            // on update le header de inode parent
+            stat_buffer.size++;
+            printf("on ajouter un dir/file inode.size : %d\n", stat_buffer.size);
+            seek_block(addr_to_block(parent_inode_addr));
+            log_write(&stat_buffer, SIZE_INODE_H);
             break;
         }
     }
@@ -799,6 +806,7 @@ int MFS_Unlink_SERVER(int pinum, char *name)
         return -1;
     }
 
+    // 1 seul dir, donc apres le header se trouve l'address du dir
     off_t parent_dir_addr;
     log_read(&parent_dir_addr, SIZE_ADDR);
     int parent_block = addr_to_block(parent_dir_addr);
@@ -814,17 +822,20 @@ int MFS_Unlink_SERVER(int pinum, char *name)
             int dir_inum = dir_buffer.inum;
 
             int dir_addr = imap_cache[dir_inum];
-            seek_block(block_to_addr(dir_addr));
-            log_read(&stat_buffer, SIZE_INODE_H);
+            seek_block(addr_to_block(dir_addr));
+            MFS_Stat_t s_b;
+            log_read(&s_b, SIZE_INODE_H);
             // size = 2 <-> .. and . the dir is empty
-            if (stat_buffer.type == MFS_DIRECTORY && stat_buffer.size > 2)
+
+            s_b.size--;
+            if (s_b.type == MFS_DIRECTORY && s_b.size > 2)
             {
                 perror("MFS_UNLINK the dir is not empty");
-                char answer[SERVER_BUFFER_SIZE] = "-1";
-                UDP_Write(sd, server_addr, answer, SERVER_BUFFER_SIZE);
-
                 return -1;
             }
+
+            lseek(fd, -SIZE_INODE_H, SEEK_CUR);
+            log_write(&s_b, SIZE_INODE_H);
 
             // retour au parent_dir_addr
             seek_block(parent_block);

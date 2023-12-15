@@ -19,9 +19,15 @@ int main(int argc, char *argv[])
 
     MFS_Creat(0, MFS_DIRECTORY, "myDir");
     int inum = MFS_Lookup(0, "myDir");
+
+    MFS_Stat_t m;
+    MFS_Stat(inum, &m);
+    printf("Stat ==============> type %d, size %d\n", m.type, m.size);
+
     MFS_Creat(inum, MFS_REGULAR_FILE, "myFile");
     int fileInum = MFS_Lookup(inum, "myFile");
     printf("myFile inum : %d\n", fileInum);
+
     MFS_Write(fileInum, "myFile content block 0", 0);
     MFS_Write(fileInum, "myFile content block 1", 1);
     MFS_Write(fileInum, "myFile content block 4", 4);
@@ -34,13 +40,14 @@ int main(int argc, char *argv[])
     printf("myFile content block 4 : %s\n", buffer);
 
     inum = MFS_Lookup(0, "myDir");
+
     int pinum = MFS_Lookup(inum, "..");
 
-    // MFS_Write(0, "buffer string", 2);
-    printf("myDyr inum : %d, pinum : %d\n", inum, pinum);
     MFS_Unlink(pinum, "myDir");
     fileInum = MFS_Lookup(inum, "myFile");
     printf("myFile inum : %d\n", fileInum);
+    MFS_Unlink(inum, "myFile");
+    MFS_Unlink(pinum, "myDir");
 
     MFS_Shutdown();
 

@@ -32,7 +32,6 @@ int main(int argc, char *argv[])
 
     MFS_Stat_t m;
     MFS_Stat(inum, &m);
-    printf("Stat ==============> type %d, size %d\n", m.type, m.size);
 
     int pinum = MFS_Lookup(inum, "..");
 
