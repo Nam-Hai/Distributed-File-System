@@ -9,3 +9,7 @@ Run udp client
 ```bash
 ./server & ./client
 ```
+
+## Documentation
+
+See in `/rapport/rapport.md` for more

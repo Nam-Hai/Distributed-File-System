@@ -35,7 +35,6 @@ int main(int argc, char *argv[])
 
     int pinum = MFS_Lookup(inum, "..");
 
-    // MFS_Write(0, "buffer string", 2);
     printf("myDyr inum : %d, pinum : %d\n", inum, pinum);
     MFS_Unlink(pinum, "myDir");
     inum = MFS_Lookup(0, "myDir");
@@ -43,6 +42,5 @@ int main(int argc, char *argv[])
 
     MFS_Shutdown();
 
-    // UDP_Close(fd);
     return 0;
 }
